@@ -96,7 +96,7 @@ echo        钱包操作子菜单
 
 echo ================================
 
-echo 1. 创建钱包
+rem echo 1. 创建钱包
 
 echo 2. 初始化钱包
 
@@ -114,7 +114,7 @@ set /p choice=输入选项编号:
 
 
 
-if "%choice%"=="1" call yarn cli wallet-create && goto walletOperations
+rem if "%choice%"=="1" call yarn cli wallet-create && goto walletOperations
 
 if "%choice%"=="2" call yarn cli wallet-init && goto walletOperations
 
