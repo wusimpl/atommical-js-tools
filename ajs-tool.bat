@@ -349,7 +349,7 @@ goto atomicalOperations
 set /p NFT_FILE_PATH=atommap svg 路径（最好使用全路径）:
 set /p ATOMMAP_ID=atommap id:
 set /p satsbyte=矿工费率（通常是sat/vB除以1.7，想要快速上链就多给一些）:
-call yarn cli mint-nft --satsbyte %NFT_FILE_PATH% --satsbyte %satsbyte%  --bitworkc ab%ATOMMAP_ID%
+call yarn cli mint-nft %NFT_FILE_PATH% --satsbyte %satsbyte%  --satsoutput 546 --bitworkc ab%ATOMMAP_ID%
 goto atomicalOperations
 
 
