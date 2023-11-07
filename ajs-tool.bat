@@ -3,10 +3,13 @@
 chcp 65001 > nul
 
 
+:: 版本 v1.0
+:: 作者 wusmpl
+:: 推特 twitter.com/wusimpl
+:: 日期 2023/11/07
+
 
 :mainMenu
-
-
 
 echo ================================
 
@@ -15,26 +18,23 @@ echo     Atomicals 管理工具主菜单
 
 echo ================================
 
-echo 1. 帮助        2. 钱包     3. 地址
+echo 1. 帮助        2. 钱包 
 
-echo 4. Atomicals               0. 退出
+echo 3. Atomicals   0. 退出
 
 echo.
 
-
 set /p choice=输入选项编号:
-
-
 
 if "%choice%"=="0" exit
 
-if "%choice%"=="1" goto commonCommands
+if "%choice%"=="1" goto helpOptions
 
 if "%choice%"=="2" goto walletOperations
 
-if "%choice%"=="3" goto addressOperations
+rem if "%choice%"=="3" goto addressOperations
 
-if "%choice%"=="4" goto atomicalOperations
+if "%choice%"=="3" goto atomicalOperations
 
 rem if "%choice%"=="5" goto realmOperations
 
@@ -42,9 +42,7 @@ goto mainMenu
 
 
 
-:commonCommands
-
-
+:helpOptions
 
 echo.
 
@@ -69,24 +67,20 @@ set /p choice=输入选项编号:
 
 
 
-if "%choice%"=="1" goto checkVersion
+if "%choice%"=="1" call yarn cli --version && goto helpOptions
 
-if "%choice%"=="2" call yarn cli --help  && goto commonCommands
+if "%choice%"=="2" call yarn cli --help  && goto helpOptions
 
-if "%choice%"=="3" call yarn cli server-version  && goto commonCommands
+if "%choice%"=="3" call yarn cli server-version  && goto helpOptions
 
 if "%choice%"=="0" goto mainMenu
 
-goto commonCommands
+goto helpOptions
 
-:checkVersion
-call yarn cli --version
-goto commonCommands
+
 
 
 :walletOperations
-
-
 
 echo.
 
@@ -98,11 +92,13 @@ echo ================================
 
 rem echo 1. 创建钱包
 
-echo 2. 初始化钱包
+echo 1. 初始化主钱包/创建主钱包
 
-echo 3. 导出钱包私钥
+echo 2. 使用助记词导出私钥
 
-echo 4. 导入钱包
+echo 3. 导入私钥地址（私钥钱包）
+
+echo 4. 获取地址信息
 
 echo 0. 返回主菜单
 
@@ -112,15 +108,15 @@ echo.
 
 set /p choice=输入选项编号:
 
-
-
 rem if "%choice%"=="1" call yarn cli wallet-create && goto walletOperations
 
-if "%choice%"=="2" call yarn cli wallet-init && goto walletOperations
+if "%choice%"=="1" call yarn cli wallet-init && goto walletOperations
 
-if "%choice%"=="3" goto decodeWallet
+if "%choice%"=="2" goto decodeWallet
 
-if "%choice%"=="4" goto importWallet
+if "%choice%"=="3" goto importWallet
+
+if "%choice%"=="4" goto getAddressInfo
 
 if "%choice%"=="0" goto mainMenu
 
@@ -128,66 +124,27 @@ goto walletOperations
 
 
 
-:addressOperations
-
-
-
-echo.
-echo ================================
-
-echo        地址操作子菜单
-
-echo ================================
-
-
-echo 5. 获取地址信息
-
-echo 0. 返回主菜单
-
-echo.
-
-
-
-set /p choice=输入选项编号:
-
-
-
-rem if "%choice%"=="1" goto encodeScript
-
-rem if "%choice%"=="2" goto decodeScript
-
-rem if "%choice%"=="3" goto decodeCompact
-
-rem if "%choice%"=="4" goto encodeCompact
-
-if "%choice%"=="5" goto getAddressInfo
-
-if "%choice%"=="0" goto mainMenu
-
-goto addressOperations
-
 
 
 :atomicalOperations
 
-
-
-echo.
 echo ================================
 
 echo       Atomical 操作子菜单
 
 echo ================================
 
+echo 1. 获取主钱包详细信息
 
-echo 1. 获取所有钱包的详细信息
+echo 2. 获取被导入钱包详细信息
 
-echo 2. 解析领域或子领域
+echo 3. 获取所有钱包的Atomicals数量
 
-echo 3. 显示子领域摘要
+echo 4. 获取领域或子领域信息
 
-echo 4. mint 领域
-echo 5. mint NFT
+echo 5. mint 领域
+
+echo 6. mint NFT（atommap）
 
 rem echo 2. 获取钱包余额和Atomcials存储情况
 
@@ -197,24 +154,22 @@ rem echo 4. 更新Atomical数据
 
 echo 0. 返回主菜单
 
-echo.
-
-
-
 set /p choice=输入选项编号:
-
-
 
 if "%choice%"=="1" call yarn cli wallets && goto atomicalOperations
 
 rem if "%choice%"=="2" call yarn cli balances && goto atomicalOperations
 
-if "%choice%"=="2" goto resolveRealm
+if "%choice%"=="2" goto yarn cli wallets --balances && goto atomicalOperations
 
-if "%choice%"=="3" goto summarySubrealms
+if "%choice%"=="3" goto getImportedAddressInfo
 
-if "%choice%"=="4" goto mintRealms
-if "%choice%"=="5" goto mintNFT
+if "%choice%"=="4" goto resolveRealm
+
+rem if "%choice%"=="3" goto summarySubrealms
+
+if "%choice%"=="5" goto mintRealms
+if "%choice%"=="6" goto mintNFT
 
 rem if "%choice%"=="3" call yarn cli summary-tickers && goto atomicalOperations
 
@@ -225,8 +180,18 @@ if "%choice%"=="0" goto mainMenu
 goto atomicalOperations
 
 
+
+
+
+:getImportedAddressInfo:
+set /p WalletAlias=钱包别名:
+yarn cli wallets --alias %WalletAlias%
+goto atomicalOperations
+
+
 :realmOperations
 echo deleted
+
 
 :summarySubrealms
 call yarn cli summary-subrealms
@@ -247,7 +212,6 @@ goto walletOperations
 
 :importWallet
 
-
 set /p wif=WIF私钥:
 
 set /p alias=给钱包取一个别名:
@@ -260,7 +224,6 @@ goto walletOperations
 
 :encodeScript
 
-
 set /p addressOrAlias=地址/别名:
 
 call yarn cli address-script "%addressOrAlias%"
@@ -270,7 +233,6 @@ goto addressOperations
 
 
 :decodeScript
-
 
 set /p script=脚本:
 
@@ -282,7 +244,6 @@ goto addressOperations
 
 :decodeCompact
 
-
 set /p hex=十六进制输出点:
 
 call yarn cli outpoint-compact "%hex%"
@@ -292,7 +253,6 @@ goto addressOperations
 
 
 :encodeCompact
-
 
 set /p compactId=紧凑ID:
 
@@ -304,12 +264,11 @@ goto addressOperations
 
 :getAddressInfo
 
-
 set /p address=地址:
 
 call yarn cli address "%address%"
 
-goto addressOperations
+goto walletOperations
 
 
 
@@ -340,7 +299,9 @@ goto atomicalOperations
 :mintRealms
 
 set /p realm=领域名称:
-set /p satsbyte=矿工费率（通常是sat/vB除以1.7，想要快速上链就多给一些）:
+call :fetch_fees
+set /p fee=请输入费率(想要快速上链就多给一些): %fee_rate%
+set /a satsbyte=fee*1000/1700 + 1
 call yarn cli mint-realm --satsbyte %satsbyte% %realm%
 goto atomicalOperations
 
@@ -348,14 +309,25 @@ goto atomicalOperations
 :mintNFT
 set /p NFT_FILE_PATH=atommap svg 路径（最好使用全路径）:
 set /p ATOMMAP_ID=atommap id:
-set /p satsbyte=矿工费率（通常是sat/vB除以1.7，想要快速上链就多给一些）:
+call :fetch_fees
+set /p fee=请输入费率(想要快速上链就多给一些): %fee_rate%
+set /a satsbyte=fee*1000/1700 + 1
 call yarn cli mint-nft %NFT_FILE_PATH% --satsbyte %satsbyte%  --satsoutput 546 --bitworkc ab%ATOMMAP_ID%
 goto atomicalOperations
 
 
 
+:fetch_fees
+for /f "delims=" %%a in ('curl -sSL "https://mempool.space/api/v1/fees/recommended"') do set fee=%%a
+echo %fee% > temp.json
 
+del temp.json
+echo ============================================================================================================
 
+echo  当前费率（单位：sats/vB）: %fee%
+
+echo ============================================================================================================
+echo.
 
 
 :end
