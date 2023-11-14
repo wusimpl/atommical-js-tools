@@ -37,6 +37,7 @@ set AUTH=--bitcoin-rpc-pass 80308400 --bitcoin-rpc-user wusimpl
 ::*************************必看的说明****************************
 
 :: 第三个功能【显示地址】需要有python环境，没有python的自己安装
+
 :: python下载地址：https://www.python.org/downloads/
 
 ::****************************************************************
