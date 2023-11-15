@@ -3,7 +3,7 @@
 chcp 65001 > nul
 
 
-:: 版本 v1.2
+:: 版本 v1.3
 :: 作者 wusmpl
 :: 推特 twitter.com/wusimpl
 :: 日期 2023/11/15
@@ -322,7 +322,25 @@ goto atomicalOperations
 
 :mintNFT
 set /p NFT_FILE_PATH=atommap svg 路径（最好使用全路径）:
+set MINT_NFT_CMD=yarn cli mint-nft %NFT_FILE_PATH%
+
 set /p ATOMMAP_ID=atommap id:
+set MINT_NFT_CMD=%MINT_NFT_CMD% --bitworkc ab%ATOMMAP_ID%
+
+echo 使用哪个钱包发送交易并接收零钱？
+
+echo 零钱即UTXO被铭刻后未花费完的资金，留空则默认为funding address。
+
+set /p sender=钱包别名：
+if NOT "%sender%"=="" (
+	set MINT_NFT_CMD=%MINT_NFT_CMD% --funding %sender%
+)
+
+set /p receiver=atommical接收地址（留空则默认为primary address）：
+if NOT "%receiver%"=="" (
+	set MINT_NFT_CMD=%MINT_NFT_CMD% --initialowner %receiver%
+)
+
 call :fetch_fees
 set /p fee_rate=请输入费率(想要快速上链就多给一些，默认40 sats/vB): 
 if "%fee_rate%"=="" (
@@ -330,7 +348,8 @@ if "%fee_rate%"=="" (
 )
 set /a satsbyte=fee_rate*1000/1700 + 2
 
-call yarn cli mint-nft %NFT_FILE_PATH% --satsbyte %satsbyte%  --satsoutput 546 --bitworkc ab%ATOMMAP_ID%
+set %MINT_NFT_CMD%=%MINT_NFT_CMD% --satsbyte %satsbyte%  --satsoutput 546
+start "mint atommap %ATOMMAP_ID%" cmd /k %MINT_NFT_CMD%
 goto atomicalOperations
 
 
@@ -338,6 +357,7 @@ goto atomicalOperations
 set MINT_NFT_CMD=yarn cli mint-dft
 
 set /p ticker=ticker name：
+set MINT_NFT_CMD=%MINT_NFT_CMD% %ticker%
 
 echo 使用哪个钱包发送交易并接收零钱？
 
@@ -366,7 +386,6 @@ if "%fee_rate%"=="" (
 set /a satsbyte=fee_rate * 1000/1700 + 2
 set MINT_NFT_CMD=%MINT_NFT_CMD% --satsbyte %satsbyte%
 
-set MINT_NFT_CMD=%MINT_NFT_CMD% %ticker%
 
 set counter=1
 :mint_loop
