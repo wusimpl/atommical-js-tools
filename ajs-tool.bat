@@ -3,10 +3,10 @@
 chcp 65001 > nul
 
 
-:: 版本 v1.1
+:: 版本 v1.2
 :: 作者 wusmpl
 :: 推特 twitter.com/wusimpl
-:: 日期 2023/11/13
+:: 日期 2023/11/15
 
 
 :mainMenu
@@ -121,13 +121,13 @@ goto walletOperations
 
 echo ================================================================================================
 echo.
-echo                                 Atomical 操作子菜单
+echo                                   Atomicals 操作子菜单
 echo.
-echo     1. 获取主钱包详细信息     2. 获取被导入钱包详细信息    3. 获取所有钱包的Atomicals数量
+echo     1. 获取主钱包详细信息       2. 获取被导入钱包详细信息        3. 获取所有钱包的Atomicals数量
 echo.
-echo     4. 获取领域或子领域信息   5. mint 领域（Realm）        6. mint NFT（atommap）
+echo     4. 获取领域或子领域信息     5. mint 领域（Realm）            6. mint Atommap
 echo.
-echo     7. mint FT（ARC20 Token） 0. 返回主菜单
+echo     7. mint FT（ARC20 Token）   8. mint container item（dmint）  0. 返回主菜单
 echo.
 echo ================================================================================================
 
@@ -147,9 +147,9 @@ if "%choice%"=="1" call yarn cli wallets && goto atomicalOperations
 
 rem if "%choice%"=="2" call yarn cli balances && goto atomicalOperations
 
-if "%choice%"=="2" goto yarn cli wallets --balances && goto atomicalOperations
+if "%choice%"=="2" goto getImportedAddressInfo
 
-if "%choice%"=="3" goto getImportedAddressInfo
+if "%choice%"=="3" echo sorry, this function is deleted && goto atomicalOperations
 
 if "%choice%"=="4" goto resolveRealm
 
@@ -158,6 +158,7 @@ rem if "%choice%"=="3" goto summarySubrealms
 if "%choice%"=="5" goto mintRealms
 if "%choice%"=="6" goto mintNFT
 if "%choice%"=="7" goto mintDFT
+if "%choice%"=="8" goto mintContainerItem
 
 rem if "%choice%"=="3" call yarn cli summary-tickers && goto atomicalOperations
 
@@ -169,9 +170,11 @@ goto atomicalOperations
 
 
 
+
+
 :getImportedAddressInfo:
-set /p WalletAlias=请取一个钱包别名:
-yarn cli wallets --alias %WalletAlias%
+set /p WalletAlias=钱包别名:
+call yarn cli wallets --alias %WalletAlias%
 goto atomicalOperations
 
 
@@ -283,12 +286,37 @@ goto atomicalOperations
 
 
 :mintRealms
+set MINT_REALM_CMD=yarn cli mint-realm
 
 set /p realm=领域名称:
+
+echo 使用哪个钱包发送交易并接收零钱？
+
+echo 零钱即UTXO被铭刻后未花费完的资金，留空则默认为funding address，否则请填写钱包别名.
+set /p receiver=钱包别名：
+if NOT "%sender%"=="" (
+	set MINT_REALM_CMD=%MINT_REALM_CMD% --funding %sender%
+)
+
+set /p receiver=atommical接收地址（留空则默认为primary address）：
+if NOT "%receiver%"=="" (
+	set MINT_REALM_CMD=%MINT_REALM_CMD% --initialowner %receiver%
+)
+
+set /p satsoutput=将多少聪铭刻在将被mint的aotommical上（留空则默认为1000）：
+if NOT "%satsoutput%"=="" (
+	set MINT_REALM_CMD=%MINT_REALM_CMD% --satsoutput %satsoutput%
+)
+
 call :fetch_fees
-set /p fee=请输入费率(想要快速上链就多给一些): %fee_rate%
-set /a satsbyte=fee*1000/1700 + 1
-call yarn cli mint-realm --satsbyte %satsbyte% %realm%
+set /p fee_rate=请输入费率(想要快速上链就多给一些，默认40 sats/vB): 
+if "%fee_rate%"=="" (
+	set fee_rate=40
+)
+set /a satsbyte=fee_rate*1000/1700 + 2
+
+call %MINT_REALM_CMD% --satsbyte %satsbyte% %realm%
+
 goto atomicalOperations
 
 
@@ -296,8 +324,12 @@ goto atomicalOperations
 set /p NFT_FILE_PATH=atommap svg 路径（最好使用全路径）:
 set /p ATOMMAP_ID=atommap id:
 call :fetch_fees
-set /p fee=请输入费率(想要快速上链就多给一些): %fee_rate%
-set /a satsbyte=fee*1000/1700 + 1
+set /p fee_rate=请输入费率(想要快速上链就多给一些，默认40 sats/vB): 
+if "%fee_rate%"=="" (
+	set fee_rate=40
+)
+set /a satsbyte=fee_rate*1000/1700 + 2
+
 call yarn cli mint-nft %NFT_FILE_PATH% --satsbyte %satsbyte%  --satsoutput 546 --bitworkc ab%ATOMMAP_ID%
 goto atomicalOperations
 
@@ -307,12 +339,16 @@ set MINT_NFT_CMD=yarn cli mint-dft
 
 set /p ticker=ticker name：
 
-set /p receiver=使用哪个钱包发送交易（留空则默认为主钱包）：
+echo 使用哪个钱包发送交易并接收零钱？
+
+echo 零钱即UTXO被铭刻后未花费完的资金，留空则默认为funding address。
+
+set /p sender=钱包别名：
 if NOT "%sender%"=="" (
 	set MINT_NFT_CMD=%MINT_NFT_CMD% --funding %sender%
 )
 
-set /p receiver=接收地址（留空则默认为主钱包）：
+set /p receiver=atommical接收地址（留空则默认为primary address）：
 if NOT "%receiver%"=="" (
 	set MINT_NFT_CMD=%MINT_NFT_CMD% --initialowner %receiver%
 )
@@ -327,7 +363,7 @@ set /p fee_rate=请输入费率(想要快速上链就多给一些，默认40 sat
 if "%fee_rate%"=="" (
 	set fee_rate=40
 )
-set /a satsbyte=%fee_rate% * 1000/1700 + 1
+set /a satsbyte=fee_rate * 1000/1700 + 2
 set MINT_NFT_CMD=%MINT_NFT_CMD% --satsbyte %satsbyte%
 
 set MINT_NFT_CMD=%MINT_NFT_CMD% %ticker%
@@ -344,8 +380,26 @@ if %counter% leq %repeat_mint% (
 goto atomicalOperations
 
 
+:mintContainerItem
+echo 暂未开放...
+goto atomicalOperations
+set /p container_id=:
+set /p itemId=:
+
+call :fetch_fees
+set /p fee_rate=请输入费率(想要快速上链就多给一些，默认40 sats/vB): 
+if "%fee_rate%"=="" (
+	set fee_rate=40
+)
+
+
+goto atomicalOperations
+
+
 :fetch_fees
+
 echo 正在获取链上费率...
+
 for /f "delims=" %%a in ('curl -sSL "https://mempool.space/api/v1/fees/recommended"') do set fee=%%a
 echo %fee% > temp.json
 
