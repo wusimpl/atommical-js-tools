@@ -3,10 +3,10 @@
 chcp 65001 > nul
 
 
-:: 版本 v1.3
+:: 版本 v1.4
 :: 作者 wusmpl
 :: 推特 twitter.com/wusimpl
-:: 日期 2023/11/15
+:: 日期 2023/11/29
 
 
 :mainMenu
@@ -158,7 +158,7 @@ rem if "%choice%"=="3" goto summarySubrealms
 if "%choice%"=="5" goto mintRealms
 if "%choice%"=="6" goto mintNFT
 if "%choice%"=="7" goto mintDFT
-if "%choice%"=="8" goto mintContainerItem
+if "%choice%"=="8" goto mintContainerItems
 
 rem if "%choice%"=="3" call yarn cli summary-tickers && goto atomicalOperations
 
@@ -399,18 +399,36 @@ if %counter% leq %repeat_mint% (
 goto atomicalOperations
 
 
-:mintContainerItem
-echo 暂未开放...
-goto atomicalOperations
-set /p container_id=:
-set /p itemId=:
+:mintContainerItems
+set /p container_name=container name（以#开头）:
+set /p item_name=item name:
+set /p manifest_file=清单文件路径（json文件，最好使用全路径）：
+
+set DMINT_CMD=yarn cli mint-item "%container_name%" "%item_name%" "%manifest_file%"
+
+echo 使用哪个钱包发送交易并接收零钱？
+
+echo 零钱即UTXO被铭刻后未花费完的资金，留空则默认为funding address。
+
+set /p sender=钱包别名：
+if NOT "%sender%"=="" (
+	set DMINT_CMD=%DMINT_CMD% --funding %sender%
+)
+
+set /p receiver=atommical接收地址（留空则默认为primary address）：
+if NOT "%receiver%"=="" (
+	set DMINT_CMD=%DMINT_CMD% --initialowner %receiver%
+)
 
 call :fetch_fees
 set /p fee_rate=请输入费率(想要快速上链就多给一些，默认40 sats/vB): 
 if "%fee_rate%"=="" (
 	set fee_rate=40
 )
-
+set /a satsbyte=fee_rate * 1000/1700 + 2
+set DMINT_CMD=%DMINT_CMD% --satsbyte %satsbyte%
+echo 执行命令：%DMINT_CMD%
+start "dminting %container_name% %item_name%... " cmd /k %DMINT_CMD%
 
 goto atomicalOperations
 
