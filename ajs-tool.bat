@@ -3,10 +3,10 @@
 chcp 65001 > nul
 
 
-:: 版本 v1.4
+:: 版本 v1.6
 :: 作者 wusmpl
 :: 推特 twitter.com/wusimpl
-:: 日期 2023/11/29
+:: 日期 2023/12/01
 
 
 :mainMenu
@@ -32,11 +32,8 @@ if "%choice%"=="1" goto helpOptions
 
 if "%choice%"=="2" goto walletOperations
 
-rem if "%choice%"=="3" goto addressOperations
-
 if "%choice%"=="3" goto atomicalOperations
 
-rem if "%choice%"=="5" goto realmOperations
 
 goto mainMenu
 
@@ -92,14 +89,10 @@ echo    0. 返回主菜单
 echo.
 echo =============================================================
 
-rem echo 1. 创建钱包
-
 
 
 
 set /p choice=输入选项编号:
-
-rem if "%choice%"=="1" call yarn cli wallet-create && goto walletOperations
 
 if "%choice%"=="1" call yarn cli wallet-init && goto walletOperations
 
@@ -125,19 +118,12 @@ echo                                   Atomicals 操作子菜单
 echo.
 echo     1. 获取主钱包详细信息       2. 获取被导入钱包详细信息        3. 获取所有钱包的Atomicals数量
 echo.
-echo     4. 获取领域或子领域信息     5. mint 领域（Realm）            6. mint Atommap
+echo     4. 获取领域或子领域信息     5. mint 领域（Realm）            6. mint NFT（mint-nft）
 echo.
-echo     7. mint FT（ARC20 Token）   8. mint container item（dmint）  0. 返回主菜单
+echo     7. mint FT（ARC20 Token）   8. mint Container Item（dmint）  0. 返回主菜单
 echo.
 echo ================================================================================================
 
-
-
-rem echo 2. 获取钱包余额和Atomcials存储情况
-
-rem echo 3. 显示ticker代码分类的代币摘要
-
-rem echo 4. 更新Atomical数据
 
 
 
@@ -321,11 +307,17 @@ goto atomicalOperations
 
 
 :mintNFT
-set /p NFT_FILE_PATH=atommap svg 路径（最好使用全路径）:
+set /p NFT_FILE_PATH=文件路径（最好使用全路径）:
 set MINT_NFT_CMD=yarn cli mint-nft %NFT_FILE_PATH%
 
-set /p ATOMMAP_ID=atommap id:
-set MINT_NFT_CMD=%MINT_NFT_CMD% --bitworkc ab%ATOMMAP_ID%
+set /p bitworkc=bitworkc:
+set MINT_NFT_CMD=%MINT_NFT_CMD% --bitworkc %bitworkc%
+
+set /p satsoutput=satsoutput（留空则默认1000）:
+if not "%satsoutput%"=="" (
+	set MINT_NFT_CMD=%MINT_NFT_CMD% --satsoutput %satsoutput%
+)
+
 
 echo 使用哪个钱包发送交易并接收零钱？
 
@@ -346,18 +338,19 @@ set /p fee_rate=请输入费率(想要快速上链就多给一些，默认40 sat
 if "%fee_rate%"=="" (
 	set fee_rate=40
 )
-set /a satsbyte=fee_rate*1000/1700 + 2
+set /a satsbyte=(fee_rate*1000)/1700 + 2
 
-set %MINT_NFT_CMD%=%MINT_NFT_CMD% --satsbyte %satsbyte%  --satsoutput 546
-start "mint atommap %ATOMMAP_ID%" cmd /k %MINT_NFT_CMD%
+set MINT_NFT_CMD=%MINT_NFT_CMD% --satsbyte %satsbyte%
+
+start "mint NFT %NFT_FILE_PATH%" cmd /k %MINT_NFT_CMD%
 goto atomicalOperations
 
 
 :mintDFT
-set MINT_NFT_CMD=yarn cli mint-dft
+set MINT_DFT_CMD=yarn cli mint-dft
 
 set /p ticker=ticker name：
-set MINT_NFT_CMD=%MINT_NFT_CMD% %ticker%
+set MINT_DFT_CMD=%MINT_DFT_CMD% %ticker%
 
 echo 使用哪个钱包发送交易并接收零钱？
 
@@ -365,12 +358,12 @@ echo 零钱即UTXO被铭刻后未花费完的资金，留空则默认为funding 
 
 set /p sender=钱包别名：
 if NOT "%sender%"=="" (
-	set MINT_NFT_CMD=%MINT_NFT_CMD% --funding %sender%
+	set MINT_DFT_CMD=%MINT_DFT_CMD% --funding %sender%
 )
 
 set /p receiver=atommical接收地址（留空则默认为primary address）：
 if NOT "%receiver%"=="" (
-	set MINT_NFT_CMD=%MINT_NFT_CMD% --initialowner %receiver%
+	set MINT_DFT_CMD=%MINT_DFT_CMD% --initialowner %receiver%
 )
 
 set /p repeat_mint=重复mint的数量（留空则默认只打1张）：
@@ -384,7 +377,7 @@ if "%fee_rate%"=="" (
 	set fee_rate=40
 )
 set /a satsbyte=fee_rate * 1000/1700 + 2
-set MINT_NFT_CMD=%MINT_NFT_CMD% --satsbyte %satsbyte%
+set MINT_DFT_CMD=%MINT_DFT_CMD% --satsbyte %satsbyte%
 
 
 set counter=1
@@ -392,7 +385,7 @@ set counter=1
 if %counter% leq %repeat_mint% (
 	echo 正在mint第%counter%张...
 	set /a counter=%counter% + 1
-	start "minting %ticker% %counter%" cmd /k %MINT_NFT_CMD%
+	start "minting %ticker% %counter%" cmd /k %MINT_DFT_CMD%
 	goto mint_loop
 )
 
@@ -401,7 +394,25 @@ goto atomicalOperations
 
 :mintContainerItems
 set /p container_name=container name（以#开头）:
+:entercontainername
 set /p item_name=item name:
+
+echo 正在查询数据...
+call yarn cli get-container-item "%container_name%" "%item_name%"
+echo ##################################
+echo 请查看上方输出中 status 的值 
+echo 为 null 则可以 mint
+echo 为 pending 则已被 mint 但还未确认 
+echo 为 verified 则已被 mint 且验证完成
+echo ##################################
+set /p statusValue=status的值是否为null（y or n）:
+if not "%statusValue%"=="y" (
+	echo ok，已经被mint，重新输入item name 
+	goto :entercontainername
+) else (
+	echo ok, Let's move on. 
+)
+
 set /p manifest_file=清单文件路径（json文件，最好使用全路径）：
 
 set DMINT_CMD=yarn cli mint-item "%container_name%" "%item_name%" "%manifest_file%"
@@ -435,7 +446,7 @@ goto atomicalOperations
 
 :fetch_fees
 
-echo 正在获取链上费率...
+echo 正在获取链上费率（有可能会失败）...
 
 for /f "delims=" %%a in ('curl -sSL "https://mempool.space/api/v1/fees/recommended"') do set fee=%%a
 echo %fee% > temp.json
@@ -448,7 +459,5 @@ echo  当前费率（单位：sats/vB）: %fee%
 echo ============================================================================================================
 echo.
 
-
-:end
 endlocal
 
