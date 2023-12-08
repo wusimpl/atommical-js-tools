@@ -5,6 +5,17 @@ import subprocess
 import json
 import os
 
+
+'''
+脚本作者:             wusimpl
+日期:                2023.12.8
+个人推特:             @wusimpl
+atomicals-js 版本:   v0.1.58
+ajs-tool 版本:       v1.7
+
+注意: 开源脚本，风险自负！
+'''
+
 def sharp_print(s):
     length = len(s)
     # 创建一个由#组成的字符串，长度与输入字符串相同
@@ -259,7 +270,7 @@ def mint_dft():
             break
     
     disable_chalk = input("是否禁用挖矿过程中每个哈希值的实时记录以提高挖矿性能（y：不禁用，留空：禁用）：")
-    fee_rate = input("请输入手续费率（单位：satsbyte，留空则默认15）：")
+    fee_rate = input("请输入手续费率（单位：satsbyte，留空则默认40）：")
 
     mint_dft_cmd = f"yarn cli mint-dft {ticker}"
     if sender:
@@ -268,6 +279,8 @@ def mint_dft():
         mint_dft_cmd += f" --initialowner {receiver}"
     if fee_rate:
         mint_dft_cmd += f" --satsbyte {fee_rate}"
+    else:
+        mint_dft_cmd += f" --satsbyte 40"
     if disable_chalk:
         mint_dft_cmd += f" --disablechalk"
 
@@ -321,7 +334,7 @@ def mint_container_items():
             print("不可为空！")
     sender =        input("使用哪个钱包发送交易并接收零钱（留空则默认为funding address）: ")
     receiver =      input("atommical接收地址（留空则默认为primary address）：")
-    fee_rate =      input("请输入手续费率（单位：sats/byte，留空则默认15）：")
+    fee_rate =      input("请输入手续费率（单位：sats/byte，留空则默认40）：")
     disable_chalk = input("是否禁用挖矿过程中每个哈希值的实时记录以提高挖矿性能（y：不禁用，留空：禁用）：")
     bitworkc =      input("bitworkc工作量证明字符串（留空则默认不使用，如果你不理解此项，请留空）：")
 
@@ -333,6 +346,8 @@ def mint_container_items():
         dmint_cmd += f" --initialowner {receiver}"
     if fee_rate:
         dmint_cmd += f" --satsbyte {fee_rate}"
+    else:
+        dmint_cmd += f" --satsbyte 40"
     if disable_chalk:
         dmint_cmd += f" --disablechalk"
     if bitworkc:
