@@ -8,6 +8,7 @@ import math
 import time
 import re
 import platform
+import datetime
 try:
     import aiohttp
 except ImportError:
@@ -45,14 +46,14 @@ except ImportError:
 # from qt_material import apply_stylesheet
 import requests
 import asyncio
-import datetime
 import aiohttp
 import dotenv
 from dotenv import load_dotenv
 from PyQt5 import QtWidgets
-from PyQt5.QtWidgets import QComboBox, QApplication, QCheckBox, QGridLayout, QMessageBox, QTextEdit, QScrollArea, \
-    QFileDialog, QLineEdit, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,QFrame,QSizePolicy\
-
+from PyQt5.QtWidgets import QComboBox, QApplication, QCheckBox,\
+    QGridLayout, QMessageBox, QTextEdit, QScrollArea, \
+    QFileDialog, QLineEdit, QMainWindow, QTabWidget, QWidget,\
+    QVBoxLayout, QHBoxLayout, QPushButton, QLabel,QFrame,QSizePolicy
 from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer, QByteArray
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtGui import QTextOption, QTextCursor, QPixmap, QImage, QFont, QPainter, QIcon
@@ -64,8 +65,6 @@ rpc_request_routes = {
     "get_by_container_item":"blockchain.atomicals.get_by_container_item",
 }
 
-
-
 class Util:
     @staticmethod
     def is_valid_file(filename):
@@ -75,7 +74,7 @@ class Util:
     def write_to_log(message):
         # Get the current directory of the script
         current_directory = os.path.dirname(os.path.realpath(__file__))
-        log_file_path = os.path.join(current_directory, "../../../AJS-QT-UI/ajs-qt-gui-log.txt")
+        log_file_path = os.path.join(current_directory, "ajs-qt-gui-log.txt")
 
         # Get the current timestamp
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -123,7 +122,7 @@ class Util:
     @staticmethod
     def loadUIEnv():
         proxy_url_list = ["https://ep.atomicals.xyz/proxy/", "https://ep.nextdao.xyz/proxy/"]
-        if not os.path.exists("../../../AJS-QT-UI/.uienv"):
+        if not os.path.exists(".uienv"):
             Util.debugPrint("创建.uienv文件")
             # create .uienv file
             with open(uienvPath, "w",encoding='utf-8') as f:
@@ -131,7 +130,7 @@ class Util:
                 f.write(f"\nPROXY_URLS={','.join(proxy_url_list)}")
             Util.debugPrint(".uienv文件创建完成")
         
-        load_dotenv(dotenv_path="../../../AJS-QT-UI/.uienv", verbose=True)
+        load_dotenv(dotenv_path="./.uienv", verbose=True)
         Util.debugPrint(os.environ.get("PROXY_URLS"))
         Util.debugPrint(".uienv文件加载完成")
     

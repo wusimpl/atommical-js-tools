@@ -1,0 +1,66 @@
+2023-12-31 15:35:21: 设置图标
+2023-12-31 15:35:21: https://ep.atomicals.xyz/proxy/,https://ep.nextdao.xyz/proxy/
+2023-12-31 15:35:21: .uienv文件加载完成
+2023-12-31 15:35:21: .env文件加载完成
+2023-12-31 15:35:21: /Users/williamsandy/materials/postgraduate-materials/servers/atomicals-js/.env
+2023-12-31 15:35:23: https://ep.atomicals.xyz/proxy/,https://ep.nextdao.xyz/proxy/
+2023-12-31 15:35:23: .uienv文件加载完成
+2023-12-31 15:35:23: .env文件加载完成
+2023-12-31 15:35:23: /Users/williamsandy/materials/postgraduate-materials/servers/atomicals-js/.env
+2023-12-31 15:35:26: /Users/williamsandy/materials/postgraduate-materials/servers/atomicals-js/wallets/wallet.json
+2023-12-31 15:35:26: default: yarn cli address-script  "bc1pxjmcm4ftapucft4qrqljvpg3zmhyfye0mnhjc7h3v4jvfp2rcqgszpcfev"
+2023-12-31 15:35:26: default: yarn run v1.22.21
+
+2023-12-31 15:35:26: default: warning ../../../../package.json: No license field
+
+2023-12-31 15:35:26: default: $ node dist/cli.js address-script bc1pxjmcm4ftapucft4qrqljvpg3zmhyfye0mnhjc7h3v4jvfp2rcqgszpcfev
+
+2023-12-31 15:35:27: default: walletPath ./wallets/wallet.json
+
+2023-12-31 15:35:27: default: Address: bc1pxjmcm4ftapucft4qrqljvpg3zmhyfye0mnhjc7h3v4jvfp2rcqgszpcfev
+
+2023-12-31 15:35:27: default: Script: 512034b78dd52be87984aea0183f26051116ee44932fdcef2c7af16564c48543c011
+
+2023-12-31 15:35:27: default: Scripthash: 97af26f424aedc5fa513746e39e89dcfdfe927acb4323d65e987ce3f0bf1e8ec
+
+2023-12-31 15:35:27: default: ------------------------------------------------------
+
+2023-12-31 15:35:27: default: Done in 1.17s.
+
+2023-12-31 15:35:27: requesting https://ep.nextdao.xyz/proxy/blockchain.atomicals.listscripthash...
+2023-12-31 15:37:16: 设置图标
+2023-12-31 15:37:16: 创建.uienv文件
+2023-12-31 15:37:16: .uienv文件创建完成
+2023-12-31 15:37:16: https://ep.atomicals.xyz/proxy/,https://ep.nextdao.xyz/proxy/
+2023-12-31 15:37:16: .uienv文件加载完成
+2023-12-31 15:37:16: 找不到.env文件，请在 <设置> 菜单指定 atomicals-js 路径.
+2023-12-31 15:37:19: https://ep.atomicals.xyz/proxy/,https://ep.nextdao.xyz/proxy/
+2023-12-31 15:37:19: .uienv文件加载完成
+2023-12-31 15:37:19: 找不到.env文件，请在 <设置> 菜单指定 atomicals-js 路径.
+2023-12-31 15:37:20: error: 'ELECTRUMX_PROXY_BASE_URL'
+2023-12-31 15:37:32: https://ep.atomicals.xyz/proxy/,https://ep.nextdao.xyz/proxy/
+2023-12-31 15:37:32: .uienv文件加载完成
+2023-12-31 15:37:32: .env文件加载完成
+2023-12-31 15:37:32: /Users/williamsandy/materials/postgraduate-materials/servers/atomicals-js/.env
+2023-12-31 15:37:32: 保存成功!
+2023-12-31 15:37:33: /Users/williamsandy/materials/postgraduate-materials/servers/atomicals-js/wallets/wallet.json
+2023-12-31 15:37:33: default: yarn cli address-script  "bc1pxjmcm4ftapucft4qrqljvpg3zmhyfye0mnhjc7h3v4jvfp2rcqgszpcfev"
+2023-12-31 15:37:33: default: yarn run v1.22.21
+
+2023-12-31 15:37:33: default: warning ../../../../package.json: No license field
+
+2023-12-31 15:37:33: default: $ node dist/cli.js address-script bc1pxjmcm4ftapucft4qrqljvpg3zmhyfye0mnhjc7h3v4jvfp2rcqgszpcfev
+
+2023-12-31 15:37:34: default: walletPath ./wallets/wallet.json
+
+2023-12-31 15:37:34: default: Address: bc1pxjmcm4ftapucft4qrqljvpg3zmhyfye0mnhjc7h3v4jvfp2rcqgszpcfev
+
+2023-12-31 15:37:34: default: Script: 512034b78dd52be87984aea0183f26051116ee44932fdcef2c7af16564c48543c011
+
+2023-12-31 15:37:34: default: Scripthash: 97af26f424aedc5fa513746e39e89dcfdfe927acb4323d65e987ce3f0bf1e8ec
+
+2023-12-31 15:37:34: default: ------------------------------------------------------
+
+2023-12-31 15:37:34: default: Done in 0.80s.
+
+2023-12-31 15:37:34: requesting https://ep.nextdao.xyz/proxy/blockchain.atomicals.listscripthash...
