@@ -205,6 +205,7 @@ def signal_handler(signum, frame):
 
 
 class GasPriceThread(QThread):
+    logSignal = pyqtSignal(dict)
     def __init__(self):
         super().__init__()
         self.gasPriceDisplay = None
@@ -224,9 +225,16 @@ class GasPriceThread(QThread):
                 response = requests.get("https://mempool.space/api/v1/fees/recommended")
                 if response.status_code == 200:
                     gasPrice = response.json()["fastestFee"]
-                    self.gasPriceDisplay.setText(f"当前 gas 价格: {gasPrice} sats/vB")
-                    self.feeRateEdit.setText(str(gasPrice))
-                    self.logDisplay.append(f"当前 gas 价格: {gasPrice} sats/vB")
+                    # self.gasPriceDisplay.setText(f"当前 gas 价格: {gasPrice} sats/vB")
+                    # self.feeRateEdit.setText(str(gasPrice))
+                    # self.logDisplay.append(f"当前 gas 价格: {gasPrice} sats/vB")
+
+                    self.logSignal.emit(
+                        {"gasPriceDisplay": f"当前 gas 价格: {gasPrice} sats/vB",
+                         "feeRateEdit": str(gasPrice),
+                            "logDisplay": f"当前 gas 价格: {gasPrice} sats/vB"
+                        })
+
                     Util.write_to_log(f"当前 gas 价格: {gasPrice} sats/vB")
                     break
                 else:
@@ -249,7 +257,7 @@ class GetContainerItemStatusThread(QThread):
         retry_count = 20
         retry_delay = 0.1
         async with semaphore:
-            while retry_count > 0:
+            while retry_count > 0 and self.isRunning:
                 try:
                     async with session.post(url, headers=headers, json=data) as response:
                         if response.status == 200:
@@ -340,11 +348,10 @@ class GetContainerItemStatusThread(QThread):
 
     def stop(self):
         self.isRunning = False
-
-        # 取消所有未完成的异步任务
         if self.loop:
-            for task in asyncio.all_tasks(self.loop):
+            for i,task in enumerate(asyncio.all_tasks(self.loop)):
                 task.cancel()
+                Util.debugPrint(f"get item status task {i} is canceled")
 
 class GetWalletDetailThread(QThread):
     logSignal = pyqtSignal(str)
@@ -541,7 +548,8 @@ class CommandThread(QThread):
                                                 stderr=subprocess.STDOUT, shell=self.shell, text=True, bufsize=1)
             for line in iter(self.process.stdout.readline, ''):
                 if not self.isRunning:
-                    self.process.terminate()
+                    if self.process:
+                        self.process.terminate()
                     break
                 self.newOutput.emit(self.title + ": " + line)
                 Util.write_to_log(self.title + ": " + line)
@@ -1058,8 +1066,9 @@ class DisplayContainerImageTab(QWidget):
 
         self.setLayout(layout)
 
-    def closeEvent(self, a0):
-        for thread in self.itemStatusThreads:
+    def clear(self):
+        for i,thread in enumerate(self.itemStatusThreads):
+            Util.debugPrint(f"停止Container Image线程{i}")
             thread.stop()
             thread.terminate()
 
@@ -1089,10 +1098,6 @@ class DisplayContainerImageTab(QWidget):
     def search_btn_clicked(self,index, containerName):
         if self.folder_path == "":
             return
-        # threads must be stopped first!
-        # for thread in self.itemStatusThreads:
-        #     thread.stop()
-        #     thread.isRunning = True
 
         self.current_page = index
 
@@ -1320,7 +1325,12 @@ class AtomicalToolGUI(QMainWindow):
         self.tabWidget.addTab(tab, title)
 
     def closeTab(self, index):
+        tab = self.tabWidget.widget(index)
+        tab_title = self.tabWidget.tabText(index)
+        if isinstance(tab, DisplayContainerImageTab):
+            tab.clear()
         self.tabWidget.removeTab(index)
+        Util.debugPrint(f"Tab \"{tab_title}\" is Closed")
 
     # 命令帮助
     def openCLIhelpTab(self):
@@ -1385,7 +1395,7 @@ class AtomicalToolGUI(QMainWindow):
             format_line("📌支持ARC20(mint-dft) 并行mint和串行mint两种模式",""),
             format_line("📌支持查看日志文件，所有日志写入与脚本相同的目录下的ajs-qt-gui-log.txt，请定期备份然后删除日志文件避免文件过大", ""),
             format_line("📌增加应用程序图标",""),
-            format_line("📌修复若干bug",""),
+            format_line("📌修复若干bug，增强代码健壮性",""),
             format_line("-"*dashNum,""),
             format_line("", ""),
 
@@ -1405,8 +1415,12 @@ class AtomicalToolGUI(QMainWindow):
             if self.gasPriceThread.isRunning():
                 self.gasPriceThread.quit()
                 self.gasPriceThread.wait()
-
-        self.gasPriceThread.setUI(displayWidget,feeRateEdit,logDisplay)
+        def updateUI(dictInfo):
+            displayWidget.setText(dictInfo["gasPriceDisplay"])
+            feeRateEdit.setText(dictInfo["feeRateEdit"])
+            logDisplay.append(dictInfo["logDisplay"])
+        self.gasPriceThread.logSignal.connect(updateUI)
+        # self.gasPriceThread.setUI(displayWidget,feeRateEdit,logDisplay)
         self.gasPriceThread.start()
 
     # 查看钱包
