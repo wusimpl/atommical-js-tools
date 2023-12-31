@@ -228,14 +228,14 @@ class GasPriceThread(QThread):
                     self.gasPriceDisplay.setText(f"当前 gas 价格: {gasPrice} sats/vB")
                     self.feeRateEdit.setText(str(gasPrice))
                     self.logDisplay.append(f"当前 gas 价格: {gasPrice} sats/vB")
-                    Util.write_log_log(f"当前 gas 价格: {gasPrice} sats/vB")
+                    Util.write_to_log(f"当前 gas 价格: {gasPrice} sats/vB")
                     break
                 else:
                     self.logDisplay.append(f"获取 gas 价格失败，状态码: {response.status_code}")
-                    Util.write_log_log(f"获取 gas 价格失败，状态码: {response.status_code}")
+                    Util.write_to_log(f"获取 gas 价格失败，状态码: {response.status_code}")
             except Exception as e:
                 self.logDisplay.append(f"获取 gas 价格时发生错误: {e}")
-                Util.write_log_log(f"获取 gas 价格时发生错误: {e}")
+                Util.write_to_log(f"获取 gas 价格时发生错误: {e}")
             retry_count -= 1
 
     def stop(self):
@@ -545,7 +545,7 @@ class CommandThread(QThread):
                     self.process.terminate()
                     break
                 self.newOutput.emit(self.title + ": " + line)
-                Util.write_log_log(self.title + ": " + line)
+                Util.write_to_log(self.title + ": " + line)
                 time.sleep(0.001)
                 if self.emitFullOutput:
                     self.output += line
