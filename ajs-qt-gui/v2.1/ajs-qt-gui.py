@@ -8,9 +8,6 @@ import math
 import time
 import re
 import platform
-
-from PyQt5 import QtWidgets
-
 try:
     import aiohttp
 except ImportError:
@@ -52,6 +49,7 @@ import datetime
 import aiohttp
 import dotenv
 from dotenv import load_dotenv
+from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QComboBox, QApplication, QCheckBox, QGridLayout, QMessageBox, QTextEdit, QScrollArea, \
     QFileDialog, QLineEdit, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,QFrame,QSizePolicy\
 
@@ -66,19 +64,47 @@ rpc_request_routes = {
     "get_by_container_item":"blockchain.atomicals.get_by_container_item",
 }
 
-def write_to_log(message):
-    # Get the current directory of the script
-    current_directory = os.path.dirname(os.path.realpath(__file__))
-    log_file_path = os.path.join(current_directory, "../../../AJS-QT-UI/ajs-qt-gui-log.txt")
 
-    # Get the current timestamp
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # Write the message to the log file with the timestamp
-    with open(log_file_path, "a",encoding='utf-8') as log_file:
-        log_file.write(f"{timestamp}: {message}\n")
 
 class Util:
+    @staticmethod
+    def is_valid_file(filename):
+        parts = filename.split('-')
+        return len(parts) == 2
+    @staticmethod
+    def write_to_log(message):
+        # Get the current directory of the script
+        current_directory = os.path.dirname(os.path.realpath(__file__))
+        log_file_path = os.path.join(current_directory, "../../../AJS-QT-UI/ajs-qt-gui-log.txt")
+
+        # Get the current timestamp
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Write the message to the log file with the timestamp
+        with open(log_file_path, "a", encoding='utf-8') as log_file:
+            log_file.write(f"{timestamp}: {message}\n")
+    @staticmethod
+    def write_to_theme_xml(data, filename='ajs-qt-gui-theme.xml'):
+        current_directory = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(current_directory, filename)
+
+        # 检查文件是否存在
+        if not os.path.exists(file_path):
+            # 文件不存在，创建并写入数据
+            with open(file_path, 'w', encoding='utf-8') as file:
+                file.write(data)
+
+        # 返回文件的完整路径
+        return file_path
+
+    @staticmethod
+    def set_icon(app):
+        script_directory = os.path.dirname(os.path.abspath(__file__))
+        if sys.platform == "darwin":
+            icon_path = os.path.join(script_directory, "ajs-qt-gui.png")
+            if os.path.exists(icon_path):
+                app.setWindowIcon(QIcon(icon_path))
+                Util.debugPrint("设置图标")
     @staticmethod
     def count_files_with_regex(directory, pattern):
         count = 0
@@ -91,7 +117,7 @@ class Util:
     @staticmethod
     def debugPrint(s):
         if DEBUG:
-            write_to_log(s)
+            Util.write_to_log(s)
             print(s)
     
     @staticmethod
@@ -202,14 +228,14 @@ class GasPriceThread(QThread):
                     self.gasPriceDisplay.setText(f"当前 gas 价格: {gasPrice} sats/vB")
                     self.feeRateEdit.setText(str(gasPrice))
                     self.logDisplay.append(f"当前 gas 价格: {gasPrice} sats/vB")
-                    write_to_log(f"当前 gas 价格: {gasPrice} sats/vB")
+                    Util.write_log_log(f"当前 gas 价格: {gasPrice} sats/vB")
                     break
                 else:
                     self.logDisplay.append(f"获取 gas 价格失败，状态码: {response.status_code}")
-                    write_to_log(f"获取 gas 价格失败，状态码: {response.status_code}")
+                    Util.write_log_log(f"获取 gas 价格失败，状态码: {response.status_code}")
             except Exception as e:
                 self.logDisplay.append(f"获取 gas 价格时发生错误: {e}")
-                write_to_log(f"获取 gas 价格时发生错误: {e}")
+                Util.write_log_log(f"获取 gas 价格时发生错误: {e}")
             retry_count -= 1
 
     def stop(self):
@@ -519,7 +545,7 @@ class CommandThread(QThread):
                     self.process.terminate()
                     break
                 self.newOutput.emit(self.title + ": " + line)
-                write_to_log(self.title + ": " + line)
+                Util.write_log_log(self.title + ": " + line)
                 time.sleep(0.001)
                 if self.emitFullOutput:
                     self.output += line
@@ -550,11 +576,6 @@ class CommandThread(QThread):
         except Exception as e:
             Util.debugPrint(e)
         self.process = None
-
-
-def is_valid_file(filename):
-    parts = filename.split('-')
-    return len(parts) == 2
 
 class DisplayWalletDetailsTab(QWidget):
     def __init__(self, parent=None):
@@ -1123,7 +1144,7 @@ class DisplayContainerImageTab(QWidget):
 
 
         file_names = sorted(
-            filter(is_valid_file, os.listdir(self.folder_path)),
+            filter(Util.is_valid_file, os.listdir(self.folder_path)),
             key=lambda x: int(x.split('-')[1].split('.')[0])
         )
 
@@ -2319,31 +2340,11 @@ class AtomicalToolGUI(QMainWindow):
             QMessageBox.critical(None, "错误", f"发生了一个错误：{e}")
 
 
-def write_to_theme_xml(data, filename='ajs-qt-gui-theme.xml'):
-    current_directory = os.path.dirname(os.path.abspath(__file__))
-    file_path = os.path.join(current_directory, filename)
-
-    # 检查文件是否存在
-    if not os.path.exists(file_path):
-        # 文件不存在，创建并写入数据
-        with open(file_path, 'w',encoding='utf-8') as file:
-            file.write(data)
-
-    # 返回文件的完整路径
-    return file_path
-
-def set_icon(app):
-    script_directory = os.path.dirname(os.path.abspath(__file__))
-    if sys.platform == "darwin":
-        icon_path = os.path.join(script_directory, "ajs-qt-gui.png")
-        if os.path.exists(icon_path):
-            app.setWindowIcon(QIcon(icon_path))
-            Util.debugPrint("设置图标")
 def main():
     signal.signal(signal.SIGINT, signal_handler)
 
     app = QApplication(sys.argv)
-    set_icon(app)
+    Util.set_icon(app)
     ex = AtomicalToolGUI()
     theme_str= '''
     <!--?xml version="1.0" encoding="UTF-8"?-->
@@ -2357,7 +2358,7 @@ def main():
       <color name="secondaryTextColor">#ffffff</color>
     </resources>
     '''
-    # style_file_path = write_to_theme_xml(theme_str)
+    # style_file_path = Util.write_to_theme_xml(theme_str)
     #
     # apply_stylesheet(app, theme="dark_lightgreen.xml")
     ex.show()
