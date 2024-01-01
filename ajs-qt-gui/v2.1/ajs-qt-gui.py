@@ -232,16 +232,22 @@ class GasPriceThread(QThread):
                     self.logSignal.emit(
                         {"gasPriceDisplay": f"当前 gas 价格: {gasPrice} sats/vB",
                          "feeRateEdit": str(gasPrice),
-                            "logDisplay": f"当前 gas 价格: {gasPrice} sats/vB"
+                         "logDisplay": f"当前 gas 价格: {gasPrice} sats/vB"
                         })
 
                     Util.write_to_log(f"当前 gas 价格: {gasPrice} sats/vB")
                     break
                 else:
-                    self.logDisplay.append(f"获取 gas 价格失败，状态码: {response.status_code}")
+                    self.logSignal.emit(
+                        {"logDisplay": f"获取 gas 价格失败，状态码: {response.status_code}"}
+                    )
+                    # self.logDisplay.append(f"获取 gas 价格失败，状态码: {response.status_code}")
                     Util.write_to_log(f"获取 gas 价格失败，状态码: {response.status_code}")
             except Exception as e:
-                self.logDisplay.append(f"获取 gas 价格时发生错误: {e}")
+                self.logSignal.emit(
+                    {"logDisplay": f"获取 gas 价格时发生错误: {e}"}
+                )
+                # self.logDisplay.append(f"获取 gas 价格时发生错误: {e}")
                 Util.write_to_log(f"获取 gas 价格时发生错误: {e}")
             retry_count -= 1
 
@@ -1416,9 +1422,12 @@ class AtomicalToolGUI(QMainWindow):
                 self.gasPriceThread.quit()
                 self.gasPriceThread.wait()
         def updateUI(dictInfo):
-            displayWidget.setText(dictInfo["gasPriceDisplay"])
-            feeRateEdit.setText(dictInfo["feeRateEdit"])
-            logDisplay.append(dictInfo["logDisplay"])
+            if "gasPriceDisplay" in dictInfo:
+                displayWidget.setText(dictInfo["gasPriceDisplay"])
+            if "feeRateEdit" in dictInfo:
+                feeRateEdit.setText(dictInfo["feeRateEdit"])
+            if "logDisplay" in dictInfo:
+                logDisplay.append(dictInfo["logDisplay"])
         self.gasPriceThread.logSignal.connect(updateUI)
         # self.gasPriceThread.setUI(displayWidget,feeRateEdit,logDisplay)
         self.gasPriceThread.start()
