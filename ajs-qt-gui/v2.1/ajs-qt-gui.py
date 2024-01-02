@@ -64,6 +64,8 @@ rpc_request_routes = {
     "listscripthash":"blockchain.atomicals.listscripthash",
     "get_by_container_item":"blockchain.atomicals.get_by_container_item",
 }
+mempool_urls = {"gasPrice":"https://mempool.space/api/v1/fees/recommended",
+                "tipHeight":"https://mempool.space/api/blocks/tip/height"}
 
 class Util:
     @staticmethod
@@ -204,51 +206,27 @@ def signal_handler(signum, frame):
     QApplication.quit()
 
 
-class GasPriceThread(QThread):
-    logSignal = pyqtSignal(dict)
-    def __init__(self):
+class GetUrlResponseThread(QThread):
+    dataSignal = pyqtSignal(dict)
+    def __init__(self,url):
         super().__init__()
-        self.gasPriceDisplay = None
-        self.feeRateEdit = None
-        self.logDisplay = None
         self.running = True
-
-    def setUI(self,gasPriceDisplay,feeRateEdit,logDisplay):
-        self.gasPriceDisplay = gasPriceDisplay
-        self.feeRateEdit = feeRateEdit
-        self.logDisplay = logDisplay
+        self.retry_count = 10
+        self.url = url
 
     def run(self):
-        retry_count = 10
+        self.running = True
+        retry_count = self.retry_count
         while retry_count > 0 and self.running:
             try:
-                response = requests.get("https://mempool.space/api/v1/fees/recommended")
+                response = requests.get(self.url)
                 if response.status_code == 200:
-                    gasPrice = response.json()["fastestFee"]
-                    # self.gasPriceDisplay.setText(f"当前 gas 价格: {gasPrice} sats/vB")
-                    # self.feeRateEdit.setText(str(gasPrice))
-                    # self.logDisplay.append(f"当前 gas 价格: {gasPrice} sats/vB")
-
-                    self.logSignal.emit(
-                        {"gasPriceDisplay": f"当前 gas 价格: {gasPrice} sats/vB",
-                         "feeRateEdit": str(gasPrice),
-                         "logDisplay": f"当前 gas 价格: {gasPrice} sats/vB"
-                        })
-
-                    Util.write_to_log(f"当前 gas 价格: {gasPrice} sats/vB")
+                    self.dataSignal.emit({"status": 0, "response": response.json()})
                     break
                 else:
-                    self.logSignal.emit(
-                        {"logDisplay": f"获取 gas 价格失败，状态码: {response.status_code}"}
-                    )
-                    # self.logDisplay.append(f"获取 gas 价格失败，状态码: {response.status_code}")
-                    Util.write_to_log(f"获取 gas 价格失败，状态码: {response.status_code}")
+                    self.dataSignal.emit({"status": 1,"response": response.status_code})
             except Exception as e:
-                self.logSignal.emit(
-                    {"logDisplay": f"获取 gas 价格时发生错误: {e}"}
-                )
-                # self.logDisplay.append(f"获取 gas 价格时发生错误: {e}")
-                Util.write_to_log(f"获取 gas 价格时发生错误: {e}")
+                self.dataSignal.emit({"status": 2, "response": e})
             retry_count -= 1
 
     def stop(self):
@@ -593,6 +571,7 @@ class CommandThread(QThread):
 class DisplayWalletDetailsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.tipHeightDisplay = None
         self.atomical_grid_layout = None
         self.nftNumberDisplay = None
         self.ftNumberDisplay = None
@@ -608,6 +587,7 @@ class DisplayWalletDetailsTab(QWidget):
         self.logDisplay = None
         self.walletDetailThread = None
         self.addressScriptThread = None
+        self.tipHeightThread = None
         self.initUI()
 
     def refresh(self):
@@ -849,6 +829,22 @@ class DisplayWalletDetailsTab(QWidget):
         self.clear_layout(self.atomical_grid_layout)
         self.currentWalletAddrValue.setText(self.walletBox.currentData())
         self.get_script_hash_from_bech32(self.walletBox.currentData())
+        self.updateTipHeight()
+
+    def updateTipHeight(self):
+        if self.tipHeightThread is not None:
+            self.tipHeightThread.stop()
+            self.tipHeightThread = None
+        self.tipHeightThread = GetUrlResponseThread(mempool_urls["tipHeight"])
+        def updateBlockTipHeight(dictInfo):
+            if dictInfo["status"] == 0:
+                self.tipHeightDisplay.setText(str(dictInfo["response"]))
+            elif dictInfo["status"] == 1: # http error
+                Util.debugPrint(f"获取最新区块高度失败，状态码: {dictInfo['response']}")
+            elif dictInfo["status"] == 2: # exception occurred
+                Util.debugPrint(f"获取最新区块高度时发生错误: {dictInfo['response']}")
+        self.tipHeightThread.dataSignal.connect(updateBlockTipHeight)
+        self.tipHeightThread.start()
 
     def initUI(self):
         layout = QGridLayout()
@@ -866,6 +862,11 @@ class DisplayWalletDetailsTab(QWidget):
         currentWalletAddrValue.setMaximumWidth(450)
         currentWalletAddrValue.setReadOnly(True)
 
+        tipHeightLabel = QLabel("主网区块高度:")
+        tipHeightLabel.setMaximumWidth(100)
+        tipHeightDisplay = QLabel("undefined")
+        tipHeightDisplay.setMaximumWidth(100)
+
         blockHeightLabel = QLabel("已索引区块高度:")
         blockHeightLabel.setMaximumWidth(100)
         blockHeightDisplay = QLabel("undefined")
@@ -876,6 +877,7 @@ class DisplayWalletDetailsTab(QWidget):
         atomicalsCountDisplay = QLabel("undefined")
         atomicalsCountDisplay.setMaximumWidth(100)
 
+        self.tipHeightDisplay = tipHeightDisplay
         self.blockHeightDisplay = blockHeightDisplay
         self.atomicalsCountDisplay = atomicalsCountDisplay
         self.walletBox = currentWalletBox
@@ -887,6 +889,8 @@ class DisplayWalletDetailsTab(QWidget):
         walletLayout.addWidget(currentWalletBox)
         walletLayout.addWidget(currentWalletAddrLabel)
         walletLayout.addWidget(currentWalletAddrValue)
+        walletLayout.addWidget(tipHeightLabel)
+        walletLayout.addWidget(tipHeightDisplay)
         walletLayout.addWidget(blockHeightLabel)
         walletLayout.addWidget(blockHeightDisplay)
         walletLayout.addWidget(atomicalsCountLabel)
@@ -1000,9 +1004,9 @@ class DisplayContainerImageTab(QWidget):
         self.current_page = 0
         self.images = []
         self.image_labels = []
-        self.num_threads = 10  # 或者你想要的线程数
-        self.text_labels = []  # 新增一个列表来存放文本标签
-        self.cols = 10  # 假设有 10 列
+        self.num_threads = 5
+        self.text_labels = []
+        self.cols = 10
         self.item_per_page = 200
         self.initUI()
 
@@ -1416,19 +1420,27 @@ class AtomicalToolGUI(QMainWindow):
 
     def fetchAndDisplayGasPrice(self, displayWidget,feeRateEdit,logDisplay):
         if self.gasPriceThread is None:
-            self.gasPriceThread = GasPriceThread()
+            self.gasPriceThread = GetUrlResponseThread(mempool_urls["gasPrice"])
         else:
             if self.gasPriceThread.isRunning():
                 self.gasPriceThread.quit()
                 self.gasPriceThread.wait()
         def updateUI(dictInfo):
-            if "gasPriceDisplay" in dictInfo:
-                displayWidget.setText(dictInfo["gasPriceDisplay"])
-            if "feeRateEdit" in dictInfo:
-                feeRateEdit.setText(dictInfo["feeRateEdit"])
-            if "logDisplay" in dictInfo:
-                logDisplay.append(dictInfo["logDisplay"])
-        self.gasPriceThread.logSignal.connect(updateUI)
+            if dictInfo["status"] == 0:
+                gasPrice = dictInfo["response"]["fastestFee"]
+                displayWidget.setText(f"当前 gas 价格: {gasPrice} sats/vB")
+                feeRateEdit.setText(str(gasPrice))
+                logDisplay.append(f"当前 gas 价格: {gasPrice} sats/vB")
+                Util.debugPrint(f"当前 gas 价格: {gasPrice} sats/vB")
+            elif dictInfo["status"] == 1: # http error
+                httpStatusCode = dictInfo["response"]
+                displayWidget.setText(f"获取 gas 价格失败，状态码: {httpStatusCode}")
+                Util.debugPrint(f"获取 gas 价格失败，状态码: {httpStatusCode}")
+            elif dictInfo["status"] == 2: # exception occurred
+                displayWidget.setText(f"获取 gas 价格时发生错误: {dictInfo['response']}")
+                Util.debugPrint(f"获取 gas 价格时发生错误: {dictInfo['response']}")
+
+        self.gasPriceThread.dataSignal.connect(updateUI)
         # self.gasPriceThread.setUI(displayWidget,feeRateEdit,logDisplay)
         self.gasPriceThread.start()
 
