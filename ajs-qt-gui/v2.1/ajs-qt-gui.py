@@ -506,7 +506,7 @@ class CommandThread(QThread):
     newOutput = pyqtSignal(str)
     finishedOutput = pyqtSignal(str)
 
-    def __init__(self, command, count=1,shell=True,title="default",emitFullOutput=False,wait_time=0):
+    def __init__(self, command, count=1,shell=True,title="",emitFullOutput=False,wait_time=0):
         super().__init__()
         self.command = command
         self.process = None
@@ -535,15 +535,15 @@ class CommandThread(QThread):
                     if self.process:
                         self.process.terminate()
                     break
-                self.newOutput.emit(self.title + ": " + line)
-                Util.write_to_log(self.title + ": " + line)
+                self.newOutput.emit(self.title  + line)
+                Util.write_to_log(self.title  + line)
                 time.sleep(0.001)
                 if self.emitFullOutput:
                     self.output += line
             if self.emitFullOutput:
                 self.finishedOutput.emit(self.output)
         except Exception as e:
-            Util.debugPrint(f"{self.title}: error: {e}")
+            Util.debugPrint(f"{self.title} error: {e}")
             return
 
 
@@ -1399,6 +1399,14 @@ class AtomicalToolGUI(QMainWindow):
             format_line("",""),
 
             format_line("-" * dashNum, ""),
+            format_line("2024.1.2 v2.2", "版本更新日志："),
+            format_line('支持的 atomicals-js 版本:', 'v0.1.66'),
+            format_line("📌增加清空日志功能", ""),
+            format_line("📌增加主网区块高度显示", ""),
+            format_line("-" * dashNum, ""),
+            format_line("", ""),
+
+            format_line("-" * dashNum, ""),
             format_line("2023.12.31 v2.1", "版本更新日志："),
             format_line('支持的 atomicals-js 版本:', 'v0.1.63'),
             format_line("📌增加钱包资产看板（BTC余额、Atomicals数量、Atomicals显示...）", ""),
@@ -1819,15 +1827,21 @@ class AtomicalToolGUI(QMainWindow):
         executeButton.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Expanding)
-        gridLayout.addWidget(executeButton, 0, 3, 3, 2)
+        gridLayout.addWidget(executeButton, 0, 3, 2, 2)
 
         # 停止
         stopButton = QPushButton("停止")
         stopButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        gridLayout.addWidget(stopButton, 3, 3, 3, 2)
+        gridLayout.addWidget(stopButton, 2, 3, 2, 2)
+
+        clearLogButton = QPushButton("清除日志")
+        clearLogButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        gridLayout.addWidget(clearLogButton, 4, 3, 2, 2)
 
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay)
+
+        clearLogButton.clicked.connect(lambda: outputDisplay.setText(""))
 
         gridLayout.addLayout(realmLayout, 0, 0, 1, 3)
 
@@ -1929,7 +1943,7 @@ class AtomicalToolGUI(QMainWindow):
         satsoutputLayout.setStretchFactor(satsoutputLabel, 1)
 
         senderLayout = QHBoxLayout()
-        senderLabel = QLabel("Sender:")
+        senderLabel = QLabel("发送地址:")
         senderEdit = QLineEdit()
         senderEdit.setPlaceholderText("留空默认为funding address")
         senderLayout.addWidget(senderLabel)
@@ -1938,7 +1952,7 @@ class AtomicalToolGUI(QMainWindow):
         senderLayout.setStretchFactor(senderLabel, 1)
 
         receiverLayout = QHBoxLayout()
-        receiverLabel = QLabel("Receiver:")
+        receiverLabel = QLabel("接收地址:")
         receiverEdit = QLineEdit()
         receiverEdit.setPlaceholderText("留空默认为primary address")
         receiverLayout.addWidget(receiverLabel)
@@ -1947,7 +1961,7 @@ class AtomicalToolGUI(QMainWindow):
         receiverLayout.setStretchFactor(receiverLabel, 1)
 
         feeRateLayout = QHBoxLayout()
-        feeRateLabel = QLabel("手续费:")
+        feeRateLabel = QLabel("手续费率:")
         feeRateEdit = QLineEdit()
         feeRateEdit.setPlaceholderText("留空默认40")
         feeRateLayout.addWidget(feeRateLabel)
@@ -1966,7 +1980,7 @@ class AtomicalToolGUI(QMainWindow):
         gasLayout.setStretchFactor(refreshGasButton, 2)
 
         # 执行按钮和输出显示
-        executeButton = QPushButton("mint")
+        executeButton = QPushButton("mint NFT")
         gridLayout.addWidget(executeButton, 0, 3, 3, 2)
         executeButton.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
@@ -1975,10 +1989,17 @@ class AtomicalToolGUI(QMainWindow):
 
         stopButton = QPushButton("停止")
         stopButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        gridLayout.addWidget(stopButton, 4, 3, 3, 2)
+        gridLayout.addWidget(stopButton, 3, 3, 2, 2)
+
+        clearLogButton = QPushButton("清除日志")
+        clearLogButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        gridLayout.addWidget(clearLogButton, 5, 3, 2, 2)
+
 
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay)
+
+        clearLogButton.clicked.connect(lambda: outputDisplay.setText(""))
 
         # 添加控件到布局
         gridLayout.addLayout(fileLayout, 0, 0, 1, 3)
@@ -2117,8 +2138,14 @@ class AtomicalToolGUI(QMainWindow):
         stopButton = QPushButton("停止")
         stopButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
 
+        clearLogButton = QPushButton("清除日志")
+        clearLogButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+
+
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay)
+
+        clearLogButton.clicked.connect(lambda: outputDisplay.setText(""))
 
         # 添加控件到布局
         gridLayout.addLayout(tickerLayout, 0, 0, 1, 3)
@@ -2130,7 +2157,8 @@ class AtomicalToolGUI(QMainWindow):
         gridLayout.addLayout(feeRateLayout, 6, 0, 1, 3)
         gridLayout.addLayout(gasLayout, 7, 0, 1, 3)
         gridLayout.addWidget(executeButton, 0, 3, 4, 2)
-        gridLayout.addWidget(stopButton, 5, 3, 3, 2)
+        gridLayout.addWidget(stopButton, 4, 3, 3, 2)
+        gridLayout.addWidget(clearLogButton, 6, 3, 2, 2)
         gridLayout.addWidget(scrollArea, 8, 0, 1, 5)
 
         # 设置执行按钮的点击事件
@@ -2293,17 +2321,24 @@ class AtomicalToolGUI(QMainWindow):
 
         # 执行
         executeButton = QPushButton("mint Container Item")
-        gridLayout.addWidget(executeButton, 0, 3, 4, 2)
+        gridLayout.addWidget(executeButton, 0, 3, 3, 2)
         executeButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
 
         start_time = time.time()  # 开始计时
         # 停止
         stopButton = QPushButton("停止")
         stopButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        gridLayout.addWidget(stopButton, 5, 3, 4, 2)
+        gridLayout.addWidget(stopButton, 3, 3, 3, 2)
+
+        clearLogButton = QPushButton("清除日志")
+        clearLogButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        gridLayout.addWidget(clearLogButton, 6, 3, 3, 2)
+
 
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         gridLayout.addWidget(scrollArea, 9, 0, 1, 5)
+
+        clearLogButton.clicked.connect(lambda: outputDisplay.setText(""))
 
         self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay)
 
