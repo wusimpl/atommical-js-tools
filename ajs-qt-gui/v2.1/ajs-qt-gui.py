@@ -69,6 +69,29 @@ mempool_urls = {"gasPrice":"https://mempool.space/api/v1/fees/recommended",
 
 class Util:
     @staticmethod
+    def getWalletDict():
+        walletDict = {}
+        try:
+            walletPath = os.environ["WALLET_PATH"]
+            if walletPath.startswith("./"):
+                walletPath = os.environ["WALLET_PATH"][2:]
+            fullWalletFilePath = os.path.join(os.environ["AJS_PATH"], walletPath, os.environ["WALLET_FILE"])
+            Util.debugPrint(fullWalletFilePath)
+            with open(fullWalletFilePath, "r",encoding="utf-8") as f:
+                walletJson = json.load(f)
+            if "primary" in walletJson:
+                walletDict["primary"] = {"address":walletJson['primary']['address'],"path":walletJson['primary']['path']}
+            if "funding" in walletJson:
+                walletDict["funding"] = {"address":walletJson['funding']['address'],"path":walletJson['funding']['path']}
+            if "imported" in walletJson:
+                walletDict["imported"] = {}
+                for key in walletJson["imported"]:
+                    walletDict["imported"][key] = {"address":walletJson['imported'][key]['address'],"path":"None"}
+        except Exception as e:
+            walletDict["error"]=f"读取钱包错误: {e}"
+            Util.debugPrint(f"读取钱包错误: {e}")
+        return walletDict
+    @staticmethod
     def is_valid_file(filename):
         parts = filename.split('-')
         return len(parts) == 2
@@ -1459,35 +1482,27 @@ class AtomicalToolGUI(QMainWindow):
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         layout.addWidget(scrollArea)
         self.addTab2(tab, "查看钱包")
-
-        try:
-            walletPath = os.environ["WALLET_PATH"]
-            if walletPath.startswith("./"):
-                walletPath = os.environ["WALLET_PATH"][2:]
-            fullWalletFilePath = os.path.join(os.environ["AJS_PATH"], walletPath, os.environ["WALLET_FILE"])
-            Util.debugPrint(fullWalletFilePath)
-            with open(fullWalletFilePath, "r",encoding="utf-8") as f:
-                walletJson = json.load(f)
-            outputDisplay.append("=" * 30 + " 主钱包 " + "=" * 30)
-            if walletJson["primary"]:
-                outputDisplay.append("primary")
-                outputDisplay.append(f"address: {walletJson['primary']['address']}")
-                outputDisplay.append(f"path: {walletJson['primary']['path']}")
-                outputDisplay.append("\n")
-            if walletJson["funding"]:
-                outputDisplay.append("funding")
-                outputDisplay.append(f"address: {walletJson['funding']['address']}")
-                outputDisplay.append(f"path: {walletJson['funding']['path']}")
-            if walletJson["imported"]:
-                outputDisplay.append("\n\n" + "=" * 30 + "导入钱包" + "=" * 30)
-                for key in walletJson["imported"]:
-                    outputDisplay.append(f"{key}")
-                    outputDisplay.append(f"address: {walletJson['imported'][key]['address']}")
-                    outputDisplay.append("\n")
-        except Exception as e:
-            outputDisplay.append(f"读取钱包文件时发生错误: {e}")
+        walletDict = Util.getWalletDict()
+        if "error" in walletDict:
+            outputDisplay.append(walletDict["error"])
             return
 
+        outputDisplay.append("=" * 30 + " 主钱包 " + "=" * 30)
+        if "primary" in walletDict:
+            outputDisplay.append("primary")
+            outputDisplay.append(f"address: {walletDict['primary']['address']}")
+            outputDisplay.append(f"path: {walletDict['primary']['path']}")
+            outputDisplay.append("\n")
+        if "funding" in walletDict:
+            outputDisplay.append("funding")
+            outputDisplay.append(f"address: {walletDict['funding']['address']}")
+            outputDisplay.append(f"path: {walletDict['funding']['path']}")
+        if "imported" in walletDict:
+            outputDisplay.append("\n\n" + "=" * 30 + "导入钱包" + "=" * 30)
+            for key in walletDict["imported"]:
+                outputDisplay.append(f"{key}")
+                outputDisplay.append(f"address: {walletDict['imported'][key]['address']}")
+                outputDisplay.append("\n")
     # 钱包初始化
     def openWalletInitTab(self):
         tab = QWidget()
@@ -1522,17 +1537,18 @@ class AtomicalToolGUI(QMainWindow):
         layout = QGridLayout(tab)
 
         walletInfoLayout = QHBoxLayout()
+        wifLabel = QLabel("私钥：")
         wifEdit = QLineEdit()
         wifEdit.setPlaceholderText("WIF格式的私钥")
+        aliasLabel = QLabel("别名：")
         aliasEdit = QLineEdit()
         aliasEdit.setPlaceholderText("给钱包取一个别名")
-        executeButton = QPushButton("导入私钥地址")
+        executeButton = QPushButton("导入私钥")
+        walletInfoLayout.addWidget(wifLabel)
         walletInfoLayout.addWidget(wifEdit)
+        walletInfoLayout.addWidget(aliasLabel)
         walletInfoLayout.addWidget(aliasEdit)
         walletInfoLayout.addWidget(executeButton)
-        walletInfoLayout.setStretchFactor(wifEdit, 2)
-        walletInfoLayout.setStretchFactor(aliasEdit, 2)
-        walletInfoLayout.setStretchFactor(executeButton, 1)
         layout.addLayout(walletInfoLayout, 0, 0)
 
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
@@ -1765,6 +1781,21 @@ class AtomicalToolGUI(QMainWindow):
 
     # mint 领域/子领域
 
+    def setupAddressCombox(self,walletDict,combox,logDisplay,isFundingAddress=False):
+        if "error" in walletDict:
+            logDisplay.append(walletDict["error"])
+            return
+        if "primary" in walletDict:
+            combox.addItem("primary"+f"（{walletDict['primary']['address']}）","primary")
+        if "funding" in walletDict:
+            combox.addItem("funding"+f"（{walletDict['funding']['address']}）","funding")
+        if "imported" in walletDict:
+            for key in walletDict["imported"]:
+                combox.addItem(key+f"（{walletDict['imported'][key]['address']}）",key)
+        if isFundingAddress:
+            combox.setCurrentText("funding"+f"（{walletDict['funding']['address']}）")
+        else:
+            combox.setCurrentText("primary"+f"（{walletDict['primary']['address']}）")
     def openMintRealmTab(self,a):
         tab = QWidget()
         gridLayout = QGridLayout(tab)
@@ -1785,19 +1816,18 @@ class AtomicalToolGUI(QMainWindow):
         realmLayout.setStretch(2, 1)
 
         # 添加钱包地址输入控件
-        senderLabel = QLabel("钱包发送地址:")
-        senderEdit = QLineEdit()
-        senderEdit.setPlaceholderText("留空默认为funding address")
+        senderLabel = QLabel("付款地址:")
+        senderCombox = QComboBox()
         senderLayout = QHBoxLayout()
         senderLayout.addWidget(senderLabel)
-        senderLayout.addWidget(senderEdit)
+        senderLayout.addWidget(senderCombox)
 
-        receiverLabel = QLabel("接收地址:")
-        receiverEdit = QLineEdit()
-        receiverEdit.setPlaceholderText("留空默认为primary address")
+        receiverLabel = QLabel("Atomicals接收地址:")
+        receiverCombox = QComboBox()
         receiverLayout = QHBoxLayout()
         receiverLayout.addWidget(receiverLabel)
-        receiverLayout.addWidget(receiverEdit)
+        receiverLayout.addWidget(receiverCombox)
+
 
         # 添加 satsoutput 和手续费率输入控件
         satsoutputLabel = QLabel("satsoutput:")
@@ -1846,10 +1876,10 @@ class AtomicalToolGUI(QMainWindow):
         gridLayout.addLayout(realmLayout, 0, 0, 1, 3)
 
         gridLayout.addWidget(senderLabel, 1, 0)
-        gridLayout.addWidget(senderEdit, 1, 1, 1, 2)
+        gridLayout.addWidget(senderCombox, 1, 1, 1, 2)
 
         gridLayout.addWidget(receiverLabel, 2, 0)
-        gridLayout.addWidget(receiverEdit, 2, 1, 1, 2)
+        gridLayout.addWidget(receiverCombox, 2, 1, 1, 2)
 
         gridLayout.addWidget(satsoutputLabel, 3, 0)
         gridLayout.addWidget(satsoutputEdit, 3, 1, 1, 2)
@@ -1865,16 +1895,19 @@ class AtomicalToolGUI(QMainWindow):
         # 设置执行按钮的点击事件
         executeButton.clicked.connect(lambda: self.mintRealm(
             realmEdit.text(),
-            senderEdit.text(),
-            receiverEdit.text(),
+            senderCombox.currentData(),
+            receiverCombox.currentData(),
             satsoutputEdit.text(),
             feeRateEdit.text(),
             outputDisplay,
             stopButton
         ))
-
+        walletDict = Util.getWalletDict()
+        self.setupAddressCombox(walletDict,senderCombox,outputDisplay,isFundingAddress=True)
+        self.setupAddressCombox(walletDict,receiverCombox,outputDisplay,isFundingAddress=False)
         # 设置刷新Gas按钮的点击事件
-        refreshGasButton.clicked.connect(lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay,feeRateEdit,outputDisplay))
+        refreshGasButton.clicked.connect(lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay,
+                                                                              feeRateEdit,outputDisplay))
 
         # 绑定查重按钮事件
         checkButton.clicked.connect(lambda: self.checkRealmDuplicate(realmEdit.text(), outputDisplay))
@@ -1943,21 +1976,19 @@ class AtomicalToolGUI(QMainWindow):
         satsoutputLayout.setStretchFactor(satsoutputLabel, 1)
 
         senderLayout = QHBoxLayout()
-        senderLabel = QLabel("发送地址:")
-        senderEdit = QLineEdit()
-        senderEdit.setPlaceholderText("留空默认为funding address")
+        senderLabel = QLabel("付款地址:")
+        senderCombox = QComboBox()
         senderLayout.addWidget(senderLabel)
-        senderLayout.addWidget(senderEdit)
-        senderLayout.setStretchFactor(senderEdit, 2)
+        senderLayout.addWidget(senderCombox)
+        senderLayout.setStretchFactor(senderCombox, 2)
         senderLayout.setStretchFactor(senderLabel, 1)
 
         receiverLayout = QHBoxLayout()
-        receiverLabel = QLabel("接收地址:")
-        receiverEdit = QLineEdit()
-        receiverEdit.setPlaceholderText("留空默认为primary address")
+        receiverLabel = QLabel("Atomicals接收地址:")
+        receiverCombox = QComboBox()
         receiverLayout.addWidget(receiverLabel)
-        receiverLayout.addWidget(receiverEdit)
-        receiverLayout.setStretchFactor(receiverEdit, 2)
+        receiverLayout.addWidget(receiverCombox)
+        receiverLayout.setStretchFactor(receiverCombox, 2)
         receiverLayout.setStretchFactor(receiverLabel, 1)
 
         feeRateLayout = QHBoxLayout()
@@ -1999,6 +2030,10 @@ class AtomicalToolGUI(QMainWindow):
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay)
 
+        walletDict = Util.getWalletDict()
+        self.setupAddressCombox(walletDict,senderCombox,outputDisplay,isFundingAddress=True)
+        self.setupAddressCombox(walletDict,receiverCombox,outputDisplay,isFundingAddress=False)
+
         clearLogButton.clicked.connect(lambda: outputDisplay.setText(""))
 
         # 添加控件到布局
@@ -2015,7 +2050,7 @@ class AtomicalToolGUI(QMainWindow):
         # 设置执行按钮的点击事件
         executeButton.clicked.connect(
             lambda: self.mintNFT(filePathEdit.text(), bitworkcEdit.text(), satsoutputEdit.text(),
-                                 senderEdit.text(), receiverEdit.text(), feeRateEdit.text(), outputDisplay, stopButton
+                                 senderCombox.currentData(), receiverCombox.currentData(), feeRateEdit.text(), outputDisplay, stopButton
                                  ))
 
     def openFileDialog(self, edit,filter):
@@ -2061,23 +2096,21 @@ class AtomicalToolGUI(QMainWindow):
 
         # 钱包发送地址
         senderLayout = QHBoxLayout()
-        senderLabel = QLabel("钱包发送地址:")
-        senderEdit = QLineEdit()
-        senderEdit.setPlaceholderText("留空则默认为funding address")
+        senderLabel = QLabel("付款地址:")
+        senderCombox = QComboBox()
         senderLayout.addWidget(senderLabel)
-        senderLayout.addWidget(senderEdit)
+        senderLayout.addWidget(senderCombox)
         senderLayout.setStretchFactor(senderLabel, 1)
-        senderLayout.setStretchFactor(senderEdit, 2)
+        senderLayout.setStretchFactor(senderCombox, 2)
 
         # 接收地址
         receiverLayout = QHBoxLayout()
-        receiverLabel = QLabel("接收地址:")
-        receiverEdit = QLineEdit()
-        receiverEdit.setPlaceholderText("留空则默认为primary address")
+        receiverLabel = QLabel("Atomicals接收地址:")
+        receiverCombox = QComboBox()
         receiverLayout.addWidget(receiverLabel)
-        receiverLayout.addWidget(receiverEdit)
+        receiverLayout.addWidget(receiverCombox)
         receiverLayout.setStretchFactor(receiverLabel, 1)
-        receiverLayout.setStretchFactor(receiverEdit, 2)
+        receiverLayout.setStretchFactor(receiverCombox, 2)
 
         # 重复mint的数量
         repeatMintLayout = QHBoxLayout()
@@ -2145,6 +2178,10 @@ class AtomicalToolGUI(QMainWindow):
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay)
 
+        walletDict = Util.getWalletDict()
+        self.setupAddressCombox(walletDict, senderCombox, outputDisplay, isFundingAddress=True)
+        self.setupAddressCombox(walletDict, receiverCombox, outputDisplay, isFundingAddress=False)
+
         clearLogButton.clicked.connect(lambda: outputDisplay.setText(""))
 
         # 添加控件到布局
@@ -2163,7 +2200,7 @@ class AtomicalToolGUI(QMainWindow):
 
         # 设置执行按钮的点击事件
         executeButton.clicked.connect(
-            lambda: self.mintDFT(tickerEdit.text(), senderEdit.text(), receiverEdit.text(), repeatMintEdit.text(),repeatMode.isChecked(),
+            lambda: self.mintDFT(tickerEdit.text(),senderCombox.currentData(),receiverCombox.currentData(), repeatMintEdit.text(),repeatMode.isChecked(),
                                  disableChalkCheckbox.isChecked(),
                                  enableRBFCheckbox.isChecked(), feeRateEdit.text(), outputDisplay, stopButton))
 
@@ -2255,25 +2292,23 @@ class AtomicalToolGUI(QMainWindow):
         gridLayout.addLayout(manifestFilePathLayout, 2, 0, 1, 3)
 
         # 钱包发送地址
-        senderLabel = QLabel("钱包发送地址:")
-        senderEdit = QLineEdit()
-        senderEdit.setPlaceholderText("留空则默认为funding address")
+        senderLabel = QLabel("付款地址:")
+        senderCombox = QComboBox()
         senderLayout = QHBoxLayout()
         senderLayout.addWidget(senderLabel)
-        senderLayout.addWidget(senderEdit)
+        senderLayout.addWidget(senderCombox)
         senderLayout.setStretchFactor(senderLabel, 1)
-        senderLayout.setStretchFactor(senderEdit, 2)
+        senderLayout.setStretchFactor(senderCombox, 2)
         gridLayout.addLayout(senderLayout, 3, 0, 1, 3)
 
         # 接收地址
-        receiverLabel = QLabel("接收地址:")
-        receiverEdit = QLineEdit()
-        receiverEdit.setPlaceholderText("留空则默认为primary address")
+        receiverLabel = QLabel("Atomicals接收地址:")
+        receiverCombox = QComboBox()
         receiverLayout = QHBoxLayout()
         receiverLayout.addWidget(receiverLabel)
-        receiverLayout.addWidget(receiverEdit)
+        receiverLayout.addWidget(receiverCombox)
         receiverLayout.setStretchFactor(receiverLabel, 1)
-        receiverLayout.setStretchFactor(receiverEdit, 2)
+        receiverLayout.setStretchFactor(receiverCombox, 2)
         gridLayout.addLayout(receiverLayout, 4, 0, 1, 3)
 
         # 手续费率
@@ -2338,13 +2373,18 @@ class AtomicalToolGUI(QMainWindow):
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         gridLayout.addWidget(scrollArea, 9, 0, 1, 5)
 
+        walletDict = Util.getWalletDict()
+        self.setupAddressCombox(walletDict, senderCombox, outputDisplay, isFundingAddress=True)
+        self.setupAddressCombox(walletDict, receiverCombox, outputDisplay, isFundingAddress=False)
+
         clearLogButton.clicked.connect(lambda: outputDisplay.setText(""))
 
         self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay)
 
         executeButton.clicked.connect(lambda: self.mintContainerItem(containerNameEdit.text(), itemNameEdit.text(),
-                                                                     manifestFilePathEdit.text(), senderEdit.text(),
-                                                                     receiverEdit.text(),
+                                                                     manifestFilePathEdit.text(),
+                                                                     senderCombox.currentData(),
+                                                                     receiverCombox.currentData(),
                                                                      feeRateEdit.text(),
                                                                      disableChalkCheckbox.isChecked(),
                                                                      bitworkcEdit.text(),
