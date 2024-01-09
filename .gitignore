@@ -3,3 +3,4 @@
 ajs-qt-gui/**/ajs-qt-gui-log.txt
 .DS_Store
 ajs-qt-gui/**/.DS_Store
+./**/.txt

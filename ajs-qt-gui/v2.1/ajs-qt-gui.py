@@ -5,6 +5,7 @@ import os
 import signal
 import json
 import math
+import threading
 import time
 import re
 import platform
@@ -54,15 +55,17 @@ from PyQt5.QtWidgets import QComboBox, QApplication, QCheckBox,\
     QGridLayout, QMessageBox, QTextEdit, QScrollArea, \
     QFileDialog, QLineEdit, QMainWindow, QTabWidget, QWidget,\
     QVBoxLayout, QHBoxLayout, QPushButton, QLabel,QFrame,QSizePolicy
-from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer, QByteArray
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer, QByteArray, QEventLoop
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtGui import QTextOption, QTextCursor, QPixmap, QImage, QFont, QPainter, QIcon
+from functools import partial
 
 DEBUG = 1
 uienvPath = "./.uienv"
 rpc_request_routes = {
     "listscripthash":"blockchain.atomicals.listscripthash",
     "get_by_container_item":"blockchain.atomicals.get_by_container_item",
+    "get_by_atomicals_id":"https://ep.atomicals.xyz/proxy/blockchain.atomicals.get"
 }
 mempool_urls = {"gasPrice":"https://mempool.space/api/v1/fees/recommended",
                 "tipHeight":"https://mempool.space/api/blocks/tip/height"}
@@ -251,6 +254,7 @@ class GetUrlResponseThread(QThread):
             except Exception as e:
                 self.dataSignal.emit({"status": 2, "response": e})
             retry_count -= 1
+            time.sleep(2)
 
     def stop(self):
         self.running = False
@@ -529,7 +533,7 @@ class CommandThread(QThread):
     newOutput = pyqtSignal(str)
     finishedOutput = pyqtSignal(str)
 
-    def __init__(self, command, count=1,shell=True,title="",emitFullOutput=False,wait_time=0):
+    def __init__(self, command, count=1,shell=True,title="",emitFullOutput=False,wait_time=0,outputSleep=True):
         super().__init__()
         self.command = command
         self.process = None
@@ -540,9 +544,25 @@ class CommandThread(QThread):
         self.output = ""  # 存储累积的输出
         self.wait_time = wait_time
         self.isRunning = True
+        self.outputSleep = outputSleep
+        self.logTimer = QTimer()
+        self.logTimer.timeout.connect(self.flushOutput)
+        self.logBuffer = "\n"
+        self.intervalTime = 1000
+        self.logTimer.setInterval(self.intervalTime)
+        self.readThread = None
+        self.logBufferLock = threading.Lock()
+
+    def flushOutput(self):
+        if self.logBuffer and self.isRunning:
+            self.newOutput.emit(self.logBuffer)
+            Util.write_to_log(self.logBuffer)
+            with self.logBufferLock:
+                self.logBuffer = ""
 
     def set_cmd(self, command):
         self.command = command
+
     def runner(self):
         try:
             Util.debugPrint(f"{self.title}: {self.command}")
@@ -553,21 +573,29 @@ class CommandThread(QThread):
             else:  # Windows 系统
                 self.process = subprocess.Popen(self.command, cwd=os.environ["AJS_PATH"], stdout=subprocess.PIPE,
                                                 stderr=subprocess.STDOUT, shell=self.shell, text=True, bufsize=1)
-            for line in iter(self.process.stdout.readline, ''):
-                if not self.isRunning:
-                    if self.process:
-                        self.process.terminate()
-                    break
-                self.newOutput.emit(self.title  + line)
-                Util.write_to_log(self.title  + line)
-                time.sleep(0.001)
-                if self.emitFullOutput:
-                    self.output += line
-            if self.emitFullOutput:
-                self.finishedOutput.emit(self.output)
+            loop = QEventLoop()
+            QTimer.singleShot(100, partial(self.startLogTimer))
+            loop.exec_()
         except Exception as e:
             Util.debugPrint(f"{self.title} error: {e}")
             return
+
+    def startLogTimer(self):
+        def readFromProcess():
+            for line in iter(self.process.stdout.readline, ''):
+                if self.isRunning and self.process:
+                    with self.logBufferLock:
+                        self.logBuffer += self.title + line
+                    self.output += line
+                    # time.sleep(0.001)
+                else:
+                    break
+            if self.emitFullOutput:
+                self.finishedOutput.emit(self.output)
+
+        self.logTimer.start()
+        self.readThread = threading.Thread(target=readFromProcess)
+        self.readThread.start()
 
 
     def run(self):
@@ -580,13 +608,15 @@ class CommandThread(QThread):
 
     def stop(self):
         try:
+            self.isRunning = False
+            if self.logTimer:
+                self.logTimer.stop()
             if self.process:
                 if os.name != 'nt':  # 非 Windows 系统
                     os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
                 else:  # Windows 系统
                     subprocess.run(['taskkill', '/F', '/T', '/PID', str(self.process.pid)])
                     Util.debugPrint(" force killed")
-                self.isRunning = False
         except Exception as e:
             Util.debugPrint(e)
         self.process = None
@@ -1244,12 +1274,8 @@ class AtomicalToolGUI(QMainWindow):
         self.addMenuLabel(menuLayout, "钱包")
         self.addButton(menuLayout, "初始化主钱包", self.openWalletInitTab)
         self.addButton(menuLayout, "导入钱包", self.openImportWalletTab)
-        self.addButton(menuLayout, "🎉钱包资产看板", self.openWalletDetailsTab)
+        self.addButton(menuLayout, "钱包资产看板", self.openWalletDetailsTab)
         self.addButton(menuLayout, "查看钱包派生路径", self.openDisplayWalletPathTab)
-        # self.addButton(menuLayout, "导入钱包详细信息", self.openImportedWalletDetailsTab)
-
-        # self.addButton(menuLayout, "使用助记词导出私钥", self.openExportPrivateKeyTab)
-        # self.addButton(menuLayout, "获取地址信息", self.openAddressInfoTab)
         self.addButton(menuLayout, "设置", self.openSettingsTab)
         self.addMenuLabel(menuLayout, "Mint Atomicals")
         self.addButton(menuLayout, "mint Realm/SubRealm", self.openMintRealmTab)
@@ -1308,7 +1334,7 @@ class AtomicalToolGUI(QMainWindow):
             displayWidget.insertHtml(newHtml)
             displayWidget.moveCursor(QTextCursor.End)
 
-        thread = CommandThread(command, count,shell,title,wait_time=wait_time)
+        thread = CommandThread(command, count,shell,title,wait_time=wait_time,outputSleep=True)
         self.commandThreads.append(thread)
         thread.newOutput.connect(updateDisplay)
         thread.start()
@@ -1415,17 +1441,31 @@ class AtomicalToolGUI(QMainWindow):
         # 使用格式化函数来创建对齐的文本
         aboutStr = '\n'.join([
             format_line("-"*dashNum,""),
-            format_line('脚本作者:', 'wusimpl & redamancyer.eth'),
+            format_line('Contributors:', 'wusimpl & redamancyer.eth'),
             format_line('推特:', '@wusimpl & @quantalmatrix'),
-            format_line("注意: 开源脚本，完全免费，风险自负！",""),
+            format_line("⚠️免责声明⚠️: 开源脚本，完全免费，风险自负！",""),
             format_line("-"*dashNum,""),
             format_line("",""),
 
             format_line("-" * dashNum, ""),
             format_line("2024.1.2 v2.2", "版本更新日志："),
             format_line('支持的 atomicals-js 版本:', 'v0.1.66'),
-            format_line("📌增加清空日志功能", ""),
+            format_line("📌增加清空日志功能，优化日志显示", ""),
+            format_line(" "*5+"请注意清空页面的日志不会修改日志文件", ""),
             format_line("📌增加主网区块高度显示", ""),
+            format_line(" "*5+"通过对比主网区块高度和Atomicals节点已索引区块高度可以判断主网数据是否已经同步，", ""),
+            format_line(" "*5+"如果已索引区块高度没有追上主网区块高度，那么未索引的主网Atomicals交易将暂时无法查询到。", ""),
+            format_line("📌自动读取可用钱包作为付款地址和接收地址", ""),
+            format_line(" "*5+"Atomicals-JS CLI 工具默认生成两个地址，一个primary地址用于接收Atomicals，一个", ""),
+            format_line(" "*5+"funding地址用于付款，如果需要使用其它地址作为付款或接受地址，请使用私钥导入，并使用", ""),
+            format_line(" "*5+"地址别名指定，AJS-QT-GUI会自动读取wallet.json中的所有可用地址。", ""),
+            format_line("📌多钱包mint ARC20", ""),
+            format_line(" " * 5 + "勾选“多钱包mint模式”，程序会读取mint规则，为每个钱包（私钥）运行一个mint线程", ""),
+            format_line(" " * 5 + "mint规则是<ticker>;<发送地址别名1-数量>;<发送地址别名2-数量>;...;<接收地址别名>", ""),
+            format_line(" " * 5 + "例如规则：sophon;fun1-2;fun2-1;primary 的含义是使用 fun1 并行 mint 2张 sophon，使用 fun2 mint 1张 sophon，", ""),
+            format_line(" " * 5 + "并使用 primary 钱包作为接收地址。每一项使用分号分隔，没有任何空格，每个发送钱包的别名和数量使用-分隔。",""),
+            format_line(" " * 5 + "请确保你的CPU有足够的算力，量力而行，否则可能会导致界面阻塞。例如您的CPU在mint一张sophon时占用30%的CPU时间，",""),
+            format_line(" " * 5 + "那么同时mint的张数最好不要超过3",""),
             format_line("-" * dashNum, ""),
             format_line("", ""),
 
@@ -1450,12 +1490,10 @@ class AtomicalToolGUI(QMainWindow):
         outputDisplay.setText(aboutStr)
 
     def fetchAndDisplayGasPrice(self, displayWidget,feeRateEdit,logDisplay):
-        if self.gasPriceThread is None:
-            self.gasPriceThread = GetUrlResponseThread(mempool_urls["gasPrice"])
-        else:
-            if self.gasPriceThread.isRunning():
-                self.gasPriceThread.quit()
-                self.gasPriceThread.wait()
+        if self.gasPriceThread:
+            self.gasPriceThread.running = False
+        self.gasPriceThread = GetUrlResponseThread(mempool_urls["gasPrice"])
+
         def updateUI(dictInfo):
             if dictInfo["status"] == 0:
                 gasPrice = dictInfo["response"]["fastestFee"]
@@ -1469,6 +1507,7 @@ class AtomicalToolGUI(QMainWindow):
                 Util.debugPrint(f"获取 gas 价格失败，状态码: {httpStatusCode}")
             elif dictInfo["status"] == 2: # exception occurred
                 displayWidget.setText(f"获取 gas 价格时发生错误: {dictInfo['response']}")
+                logDisplay.append(f"获取 gas 价格时发生错误: {dictInfo['response']}")
                 Util.debugPrint(f"获取 gas 价格时发生错误: {dictInfo['response']}")
 
         self.gasPriceThread.dataSignal.connect(updateUI)
@@ -1846,6 +1885,7 @@ class AtomicalToolGUI(QMainWindow):
 
         # 显示当前 gas 价格及刷新按钮
         gasPriceDisplay = QLabel()
+        gasPriceDisplay.setMaximumWidth(300)
         refreshGasButton = QPushButton("刷新")
         refreshGasButton.clicked.connect(lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay,feeRateEdit,outputDisplay))
         gasLayout = QHBoxLayout()
@@ -2003,6 +2043,7 @@ class AtomicalToolGUI(QMainWindow):
         # 显示当前 gas 价格及刷新按钮
         gasLayout = QHBoxLayout()
         gasPriceDisplay = QLabel()
+        gasPriceDisplay.setMaximumWidth(300)
         refreshGasButton = QPushButton("刷新")
         refreshGasButton.clicked.connect(lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay,feeRateEdit,outputDisplay))
         gasLayout.addWidget(gasPriceDisplay)
@@ -2084,13 +2125,26 @@ class AtomicalToolGUI(QMainWindow):
         gridLayout = QGridLayout(tab)
         self.addTab2(tab, "mint FT（ARC20 Token）")
 
+        def multiWalletMintModeClicked(state):
+            if state == Qt.Checked:
+                tickerLabel.setText("多钱包mint规则：")
+                tickerEdit.setPlaceholderText("规则编写方式请参见<关于>菜单")
+            else:
+                tickerLabel.setText("Ticker 名称:")
+                tickerEdit.setPlaceholderText("需要mint的Token名称")
+
+
         # Ticker 名称
         tickerLayout = QHBoxLayout()
         tickerLabel = QLabel("Ticker 名称:")
         tickerEdit = QLineEdit()
-        tickerEdit.setPlaceholderText("Ticker 名称")
+        tickerEdit.setPlaceholderText("需要mint的Token名称")
+        multiWalletMintMode = QCheckBox("多钱包mint模式💬")
+        multiWalletMintMode.setToolTip("该模式将会自动忽略<付款地址>字段，并使用并行mint方式\n更多信息请参见<关于>菜单中v2.2版本的更新日志📌多钱包mint ARC20")
+        multiWalletMintMode.stateChanged.connect(multiWalletMintModeClicked)
         tickerLayout.addWidget(tickerLabel)
         tickerLayout.addWidget(tickerEdit)
+        tickerLayout.addWidget(multiWalletMintMode)
         tickerLayout.setStretchFactor(tickerLabel, 1)
         tickerLayout.setStretchFactor(tickerEdit, 2)
 
@@ -2157,6 +2211,7 @@ class AtomicalToolGUI(QMainWindow):
         # 显示当前 gas 价格
         gasLayout = QHBoxLayout()
         gasPriceDisplay = QLabel()
+        gasPriceDisplay.setMaximumWidth(300)
         refreshGasButton = QPushButton("刷新")
         refreshGasButton.clicked.connect(lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay,feeRateEdit,outputDisplay))
         gasLayout.addWidget(gasPriceDisplay)
@@ -2200,46 +2255,104 @@ class AtomicalToolGUI(QMainWindow):
 
         # 设置执行按钮的点击事件
         executeButton.clicked.connect(
-            lambda: self.mintDFT(tickerEdit.text(),senderCombox.currentData(),receiverCombox.currentData(), repeatMintEdit.text(),repeatMode.isChecked(),
+            lambda: self.mintDFT(tickerEdit.text(),multiWalletMintMode.isChecked(),senderCombox.currentData(),receiverCombox.currentData(), repeatMintEdit.text(),repeatMode.isChecked(),
                                  disableChalkCheckbox.isChecked(),
                                  enableRBFCheckbox.isChecked(), feeRateEdit.text(), outputDisplay, stopButton))
 
-    def mintDFT(self, ticker, sender, receiver, repeatMint,parrallelMode, disableChalk, enbleRBF, feeRate, outputDisplay, stopButton):
-        if ticker == "":
-            outputDisplay.append("请在输入ticker名称")
-            return
-        try:
-            repeatMint = int(repeatMint)
-        except ValueError:
-            repeatMint = 1
-        # 使用默认值处理可选参数
-        feeRate = f"--satsbyte {feeRate}" if feeRate else "--satsbyte 40"
-        sender = f"--funding {sender}" if sender else ""
-        receiver = f"--initialowner {receiver}" if receiver else ""
+    def mintDFT(self, ticker, multiWalletMode, senderItem, receiver, repeatMint, parrallelMode, disableChalk, enbleRBF, feeRate, outputDisplay, stopButton):
+        def parseMultiWalletMintModeRules(ruleStr):
+            try:
+                items = ruleStr.split(";")
+                if len(items) <3:
+                    outputDisplay.append("mint规则解析错误，请检查规则语法是否正确")
+                    Util.debugPrint("mint规则解析错误，请检查规则语法是否正确")
+                    return None
+                ticker = items[0]
+                receiver = items[-1]
+                senders = items[1:-1]
+                result = {
+                              "ticker": ticker,
+                              "receiver": receiver,
+                              "senders": [{sender.split("-")[0]: sender.split("-")[1]} for sender in senders]
+                          }
+                return result
+            except Exception as e:
+                outputDisplay.append("mint规则解析错误，请检查规则语法是否正确")
+                Util.debugPrint("mint规则解析错误，请检查规则语法是否正确")
+                return None
+        def startMintDFT(ticker, repeatMint, feeRate, sender, receiver, disableChalk, enbleRBF, parrallelMode, title, outputDisplay):
+            if ticker == "":
+                outputDisplay.append("请输入ticker名称")
+                return
+            try:
+                repeatMint = int(repeatMint)
+            except ValueError:
+                repeatMint = 1
+            # 使用默认值处理可选参数
+            feeRate = f"--satsbyte {feeRate}" if feeRate else "--satsbyte 40"
+            sender = f"--funding {sender}" if sender else ""
+            receiver = f"--initialowner {receiver}" if receiver else ""
 
-        # 构建命令
-        mint_dft_cmd = f"yarn cli mint-dft {ticker} {feeRate} {sender} {receiver}"
-        if disableChalk:
-            mint_dft_cmd = mint_dft_cmd + " --disablechalk"
-        if enbleRBF:
-            mint_dft_cmd = mint_dft_cmd + " --rbf"
+            # 构建命令
+            mint_dft_cmd = f"yarn cli mint-dft {ticker} {feeRate} {sender} {receiver}"
+            if disableChalk:
+                mint_dft_cmd = mint_dft_cmd + " --disablechalk"
+            if enbleRBF:
+                mint_dft_cmd = mint_dft_cmd + " --rbf"
 
-        Util.debugPrint(mint_dft_cmd)
+            # Util.debugPrint(mint_dft_cmd)
 
-        if not parrallelMode:
-            thread = self.executeCommandWithHtmlFormat(mint_dft_cmd, outputDisplay, repeatMint)
-            stopButton.clicked.connect(lambda: self.stopCommandThread(outputDisplay, thread))
+            if not parrallelMode:
+                thread = self.executeCommandWithHtmlFormat(mint_dft_cmd, outputDisplay, repeatMint)
+                stopButton.clicked.connect(lambda: self.stopCommandThread(outputDisplay, thread))
+            else:
+                threads = []
+                for i in range(repeatMint):
+                    if i==0:
+                        wait_time = 0
+                    else:
+                        wait_time = 5
+                    thread = self.executeCommandWithHtmlFormat(mint_dft_cmd, outputDisplay, shell=True, title=f"{title} thread {i}：",wait_time=wait_time)
+                    threads.append(thread)
+                stopButton.clicked.connect(lambda: self.stopCommandThreads(outputDisplay, threads))
+
+
+        if multiWalletMode:
+            if ticker == "":
+                outputDisplay.append("请输入多钱包mint规则")
+                return
+            parseResult = parseMultiWalletMintModeRules(ticker)
+            if parseResult is None:
+                return
+            ticker = parseResult["ticker"]
+            receiver = parseResult["receiver"]
+            i = 0
+            try:
+                for senderInfo in parseResult["senders"]:
+                    sender,repeatMint=list(senderInfo.items())[0]
+                    repeatMint = int(senderInfo[sender])
+                    if i == 0:
+                        QTimer.singleShot(100, partial(startMintDFT,ticker=ticker, repeatMint=repeatMint, feeRate=feeRate,
+                                                                  sender=sender, receiver=receiver,
+                                                                  disableChalk=disableChalk, enbleRBF=enbleRBF,
+                                                                  parrallelMode=True,
+                                                                  title=f"mint {ticker} with {sender} wallet",
+                                                                  outputDisplay=outputDisplay))
+                    else:
+                        QTimer.singleShot(10000, partial(startMintDFT,ticker=ticker, repeatMint=repeatMint, feeRate=feeRate,
+                                                                  sender=sender, receiver=receiver,
+                                                                  disableChalk=disableChalk, enbleRBF=enbleRBF,
+                                                                  parrallelMode=True,
+                                                                  title=f"mint {ticker} with {sender} wallet",
+                                                                  outputDisplay=outputDisplay))
+                    i = i + 1
+            except Exception as e:
+                Util.debugPrint(f"error: {e}")
+                outputDisplay.append(f"error: {e}")
         else:
-            threads = []
-            for i in range(repeatMint):
-                if i==0:
-                    wait_time = 0
-                else:
-                    wait_time = 5
-                thread = self.executeCommandWithHtmlFormat(mint_dft_cmd, outputDisplay, 1, shell=True, title=f"mint DFT Thread {i}",wait_time=wait_time)
-                threads.append(thread)
-            stopButton.clicked.connect(lambda: self.stopCommandThreads(outputDisplay, threads))
-
+            senderAlias = f"{senderItem}" if senderItem else "funding"
+            startMintDFT(ticker, repeatMint, feeRate, senderItem, receiver, disableChalk, enbleRBF,
+                         parrallelMode,f"mint {ticker} with {senderAlias} wallet", outputDisplay)
 
     def openMintContainerItemTab(self,a):
         tab = QWidget()
@@ -2345,6 +2458,7 @@ class AtomicalToolGUI(QMainWindow):
 
         # 显示当前 gas 价格
         gasPriceDisplay = QLabel()
+        gasPriceDisplay.setMaximumWidth(300)
         refreshGasButton = QPushButton("刷新")
         refreshGasButton.clicked.connect(lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay,feeRateEdit,outputDisplay))
         gasLayout = QHBoxLayout()
@@ -2402,8 +2516,8 @@ class AtomicalToolGUI(QMainWindow):
     def stopCommandThreads(self, outputDisplay, threads):
         for i,thread in enumerate(threads):
             thread.stop()
-            outputDisplay.append(f"⛔已停止进程{i}⛔")
-            Util.debugPrint(f"⛔已停止进程{i}⛔")
+            outputDisplay.append(f"⛔已停止线程{i}⛔")
+            Util.debugPrint(f"⛔已停止线程{i}⛔")
             outputDisplay.moveCursor(QTextCursor.End)
 
     def mintContainerItem(self, containerName, itemName, manifestFilePath, sender, receiver, feeRate, disableChalk,
