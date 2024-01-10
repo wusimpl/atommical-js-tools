@@ -540,15 +540,15 @@ class CommandThread(QThread):
         self.title = title
         self.shell = shell
         self.emitFullOutput = emitFullOutput
-        self.count = count  # 运行次数
-        self.output = ""  # 存储累积的输出
+        self.count = count
+        self.output = ""
         self.wait_time = wait_time
         self.isRunning = True
         self.outputSleep = outputSleep
         self.logTimer = QTimer()
         self.logTimer.timeout.connect(self.flushOutput)
         self.logBuffer = "\n"
-        self.intervalTime = 1000
+        self.intervalTime = 500
         self.logTimer.setInterval(self.intervalTime)
         self.readThread = None
         self.logBufferLock = threading.Lock()
@@ -641,6 +641,7 @@ class DisplayWalletDetailsTab(QWidget):
         self.walletDetailThread = None
         self.addressScriptThread = None
         self.tipHeightThread = None
+        self.unit = "sats"
         self.initUI()
 
     def refresh(self):
@@ -680,6 +681,7 @@ class DisplayWalletDetailsTab(QWidget):
         self.totalBalanceDisplay.setText(str(walletDataDict["balance"]["total"]) + " sats")
         self.safeBalanceDisplay.setText(str(walletDataDict["balance"]["safe"]) + " sats")
         self.atomicalsBalanceDisplay.setText(str(walletDataDict["balance"]["atomical"]) + " sats")
+        self.unit = "sats"
 
         nftAtomicals_num = walletDataDict["atomicals"]["nftAtomicals"]["num"]
         ftAtomicals_num = len(walletDataDict["atomicals"]["ftAtomicals"])
@@ -899,6 +901,26 @@ class DisplayWalletDetailsTab(QWidget):
         self.tipHeightThread.dataSignal.connect(updateBlockTipHeight)
         self.tipHeightThread.start()
 
+    def switchUnit(self):
+        if self.totalBalanceDisplay.text() == "undefined":
+            return
+        if self.unit == "sats":
+            self.unit = "btc"
+            totalBalance = float(self.totalBalanceDisplay.text()[:-5])
+            safeBalance = float(self.safeBalanceDisplay.text()[:-5])
+            atomicalBalance = float(self.atomicalsBalanceDisplay.text()[:-5])
+            self.totalBalanceDisplay.setText(f"{totalBalance / 100000000:.8f} btc")
+            self.safeBalanceDisplay.setText(f"{safeBalance / 100000000:.8f} btc")
+            self.atomicalsBalanceDisplay.setText(f"{atomicalBalance / 100000000:.8f} btc")
+        else:
+            self.unit = "sats"
+            totalBalance = float(self.totalBalanceDisplay.text()[:-4])
+            safeBalance = float(self.safeBalanceDisplay.text()[:-4])
+            atomicalBalance = float(self.atomicalsBalanceDisplay.text()[:-4])
+            self.totalBalanceDisplay.setText(f"{totalBalance * 100000000:.0f} sats")
+            self.safeBalanceDisplay.setText(f"{safeBalance * 100000000:.0f} sats")
+            self.atomicalsBalanceDisplay.setText(f"{atomicalBalance * 100000000:.0f} sats")
+
     def initUI(self):
         layout = QGridLayout()
 
@@ -988,6 +1010,9 @@ class DisplayWalletDetailsTab(QWidget):
         nftNumberDisplay = QLabel("undefined")
         self.nftNumberDisplay = nftNumberDisplay
 
+        switchUnitButton = QPushButton("切换单位")
+        switchUnitButton.clicked.connect(self.switchUnit)
+
         refreshButton = QPushButton("刷新")
         refreshButton.clicked.connect(self.refresh)
 
@@ -1004,6 +1029,7 @@ class DisplayWalletDetailsTab(QWidget):
         balanceLayout.addWidget(ftNumberDisplay)
         balanceLayout.addWidget(nftNumberLabel)
         balanceLayout.addWidget(nftNumberDisplay)
+        balanceLayout.addWidget(switchUnitButton)
         balanceLayout.addWidget(refreshButton)
 
         balanceLayout.setStretchFactor(totalBalanceDisplay, 1)
@@ -1466,6 +1492,7 @@ class AtomicalToolGUI(QMainWindow):
             format_line(" " * 5 + "并使用 primary 钱包作为接收地址。每一项使用分号分隔，没有任何空格，每个发送钱包的别名和数量使用-分隔。",""),
             format_line(" " * 5 + "请确保你的CPU有足够的算力，量力而行，否则可能会导致界面阻塞。例如您的CPU在mint一张sophon时占用30%的CPU时间，",""),
             format_line(" " * 5 + "那么同时mint的张数最好不要超过3",""),
+            format_line("📌钱包余额单位已可在sats和btc之间切换（1 btc=10^8 sats）", ""),
             format_line("-" * dashNum, ""),
             format_line("", ""),
 
@@ -2336,14 +2363,14 @@ class AtomicalToolGUI(QMainWindow):
                                                                   sender=sender, receiver=receiver,
                                                                   disableChalk=disableChalk, enbleRBF=enbleRBF,
                                                                   parrallelMode=True,
-                                                                  title=f"mint {ticker} with {sender} wallet",
+                                                                  title=f"mint {ticker} with 💼{sender} wallet",
                                                                   outputDisplay=outputDisplay))
                     else:
-                        QTimer.singleShot(10000, partial(startMintDFT,ticker=ticker, repeatMint=repeatMint, feeRate=feeRate,
+                        QTimer.singleShot(i*3000, partial(startMintDFT,ticker=ticker, repeatMint=repeatMint, feeRate=feeRate,
                                                                   sender=sender, receiver=receiver,
                                                                   disableChalk=disableChalk, enbleRBF=enbleRBF,
                                                                   parrallelMode=True,
-                                                                  title=f"mint {ticker} with {sender} wallet",
+                                                                  title=f"mint {ticker} with 💼{sender} wallet",
                                                                   outputDisplay=outputDisplay))
                     i = i + 1
             except Exception as e:
