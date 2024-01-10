@@ -5,40 +5,36 @@ import os
 import signal
 import json
 import math
+import threading
 import time
 import re
 import platform
 import datetime
-
 try:
     import aiohttp
 except ImportError:
     print("aiohttp not found. Installing...")
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "aiohttp", "-i", "https://pypi.tuna.tsinghua.edu.cn/simple"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "aiohttp","-i","https://pypi.tuna.tsinghua.edu.cn/simple"])
     print("aiohttp installed successfully.")
 try:
     import requests
 except ImportError:
     print("requests not found. Installing...")
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "requests", "-i", "https://pypi.tuna.tsinghua.edu.cn/simple"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "requests","-i","https://pypi.tuna.tsinghua.edu.cn/simple"])
     print("requests installed successfully.")
 
 try:
     import PyQt5
 except ImportError:
     print("PyQt5 not found. Installing...")
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "PyQt5", "-i", "https://pypi.tuna.tsinghua.edu.cn/simple"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt5","-i","https://pypi.tuna.tsinghua.edu.cn/simple"])
     print("PyQt5 installed successfully.")
 
 try:
     import dotenv
 except ImportError:
     print("dotenv not found. Installing...")
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "python-dotenv", "-i", "https://pypi.tuna.tsinghua.edu.cn/simple"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "python-dotenv","-i","https://pypi.tuna.tsinghua.edu.cn/simple"])
     print("dotenv installed successfully.")
 
 # try:
@@ -55,28 +51,53 @@ import aiohttp
 import dotenv
 from dotenv import load_dotenv
 from PyQt5 import QtWidgets
-from PyQt5.QtWidgets import QComboBox, QApplication, QCheckBox, \
+from PyQt5.QtWidgets import QComboBox, QApplication, QCheckBox,\
     QGridLayout, QMessageBox, QTextEdit, QScrollArea, \
-    QFileDialog, QLineEdit, QMainWindow, QTabWidget, QWidget, \
-    QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame, QSizePolicy
-from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer, QByteArray
+    QFileDialog, QLineEdit, QMainWindow, QTabWidget, QWidget,\
+    QVBoxLayout, QHBoxLayout, QPushButton, QLabel,QFrame,QSizePolicy
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer, QByteArray, QEventLoop
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtGui import QTextOption, QTextCursor, QPixmap, QImage, QFont, QPainter, QIcon
+from functools import partial
 
 DEBUG = 1
 uienvPath = "./.uienv"
 rpc_request_routes = {
-    "listscripthash": "blockchain.atomicals.listscripthash",
-    "get_by_container_item": "blockchain.atomicals.get_by_container_item",
+    "listscripthash":"blockchain.atomicals.listscripthash",
+    "get_by_container_item":"blockchain.atomicals.get_by_container_item",
+    "get_by_atomicals_id":"https://ep.atomicals.xyz/proxy/blockchain.atomicals.get"
 }
-
+mempool_urls = {"gasPrice":"https://mempool.space/api/v1/fees/recommended",
+                "tipHeight":"https://mempool.space/api/blocks/tip/height"}
 
 class Util:
+    @staticmethod
+    def getWalletDict():
+        walletDict = {}
+        try:
+            walletPath = os.environ["WALLET_PATH"]
+            if walletPath.startswith("./"):
+                walletPath = os.environ["WALLET_PATH"][2:]
+            fullWalletFilePath = os.path.join(os.environ["AJS_PATH"], walletPath, os.environ["WALLET_FILE"])
+            Util.debugPrint(fullWalletFilePath)
+            with open(fullWalletFilePath, "r",encoding="utf-8") as f:
+                walletJson = json.load(f)
+            if "primary" in walletJson:
+                walletDict["primary"] = {"address":walletJson['primary']['address'],"path":walletJson['primary']['path']}
+            if "funding" in walletJson:
+                walletDict["funding"] = {"address":walletJson['funding']['address'],"path":walletJson['funding']['path']}
+            if "imported" in walletJson:
+                walletDict["imported"] = {}
+                for key in walletJson["imported"]:
+                    walletDict["imported"][key] = {"address":walletJson['imported'][key]['address'],"path":"None"}
+        except Exception as e:
+            walletDict["error"]=f"读取钱包错误: {e}"
+            Util.debugPrint(f"读取钱包错误: {e}")
+        return walletDict
     @staticmethod
     def is_valid_file(filename):
         parts = filename.split('-')
         return len(parts) == 2
-
     @staticmethod
     def write_to_log(message):
         # Get the current directory of the script
@@ -89,7 +110,6 @@ class Util:
         # Write the message to the log file with the timestamp
         with open(log_file_path, "a", encoding='utf-8') as log_file:
             log_file.write(f"{timestamp}: {message}\n")
-
     @staticmethod
     def write_to_theme_xml(data, filename='ajs-qt-gui-theme.xml'):
         current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -112,7 +132,6 @@ class Util:
             if os.path.exists(icon_path):
                 app.setWindowIcon(QIcon(icon_path))
                 Util.debugPrint("设置图标")
-
     @staticmethod
     def count_files_with_regex(directory, pattern):
         count = 0
@@ -121,28 +140,28 @@ class Util:
             if regex.search(file):
                 count += 1
         return count
-
+    
     @staticmethod
     def debugPrint(s):
         if DEBUG:
             Util.write_to_log(s)
             print(s)
-
+    
     @staticmethod
     def loadUIEnv():
         proxy_url_list = ["https://ep.atomicals.xyz/proxy/", "https://ep.nextdao.xyz/proxy/"]
         if not os.path.exists(".uienv"):
             Util.debugPrint("创建.uienv文件")
             # create .uienv file
-            with open(uienvPath, "w", encoding='utf-8') as f:
+            with open(uienvPath, "w",encoding='utf-8') as f:
                 f.write("AJS_PATH=./")
                 f.write(f"\nPROXY_URLS={','.join(proxy_url_list)}")
             Util.debugPrint(".uienv文件创建完成")
-
+        
         load_dotenv(dotenv_path="./.uienv", verbose=True)
         Util.debugPrint(os.environ.get("PROXY_URLS"))
         Util.debugPrint(".uienv文件加载完成")
-
+    
     @staticmethod
     def loadAJSEnv():
         try:
@@ -157,31 +176,31 @@ class Util:
                 QMessageBox.warning(None, "警告", "找不到.env文件，请在 <设置> 菜单指定 atomicals-js 路径.")
         except Exception as e:
             Util.debugPrint(f"error: {e}")
-
+    
     @staticmethod
     def saveEnv(envFilePath, key, value):
         if os.path.exists(envFilePath):
             dotenv.set_key(envFilePath, key, value)
-
+    
     @staticmethod
     def getImportedWalletList():
         walletList = []
         try:
             walletPath = os.environ["WALLET_PATH"]
-
+        
             if walletPath.startswith("./"):
                 walletPath = os.environ["WALLET_PATH"][2:]
             fullWalletFilePath = os.path.join(os.environ["AJS_PATH"], walletPath, os.environ["WALLET_FILE"])
             Util.debugPrint(fullWalletFilePath)
-            with open(fullWalletFilePath, "r", encoding="utf-8") as f:
+            with open(fullWalletFilePath, "r",encoding="utf-8") as f:
                 walletJson = json.load(f)
             if walletJson["imported"]:
                 for key in walletJson["imported"]:
                     walletList.append(key)
-
+        
         except KeyError as e:
             Util.debugPrint(f"error: {e}")
-
+        
         return walletList
 
     @staticmethod
@@ -208,68 +227,42 @@ class Util:
         }
         return ansi_to_html.get(ansi_sequence, '')
 
-
 # 定义一个信号处理函数
 def signal_handler(signum, frame):
     QApplication.quit()
 
 
-class GasPriceThread(QThread):
-    logSignal = pyqtSignal(dict)
-
-    def __init__(self):
+class GetUrlResponseThread(QThread):
+    dataSignal = pyqtSignal(dict)
+    def __init__(self,url):
         super().__init__()
-        self.gasPriceDisplay = None
-        self.feeRateEdit = None
-        self.logDisplay = None
         self.running = True
-
-    def setUI(self, gasPriceDisplay, feeRateEdit, logDisplay):
-        self.gasPriceDisplay = gasPriceDisplay
-        self.feeRateEdit = feeRateEdit
-        self.logDisplay = logDisplay
+        self.retry_count = 10
+        self.url = url
 
     def run(self):
-        retry_count = 10
+        self.running = True
+        retry_count = self.retry_count
         while retry_count > 0 and self.running:
             try:
-                response = requests.get("https://mempool.space/api/v1/fees/recommended")
+                response = requests.get(self.url)
                 if response.status_code == 200:
-                    gasPrice = response.json()["fastestFee"]
-                    # self.gasPriceDisplay.setText(f"当前 gas 价格: {gasPrice} sats/vB")
-                    # self.feeRateEdit.setText(str(gasPrice))
-                    # self.logDisplay.append(f"当前 gas 价格: {gasPrice} sats/vB")
-
-                    self.logSignal.emit(
-                        {"gasPriceDisplay": f"当前 gas 价格: {gasPrice} sats/vB",
-                         "feeRateEdit": str(gasPrice),
-                         "logDisplay": f"当前 gas 价格: {gasPrice} sats/vB"
-                         })
-
-                    Util.write_to_log(f"当前 gas 价格: {gasPrice} sats/vB")
+                    self.dataSignal.emit({"status": 0, "response": response.json()})
                     break
                 else:
-                    self.logSignal.emit(
-                        {"logDisplay": f"获取 gas 价格失败，状态码: {response.status_code}"}
-                    )
-                    # self.logDisplay.append(f"获取 gas 价格失败，状态码: {response.status_code}")
-                    Util.write_to_log(f"获取 gas 价格失败，状态码: {response.status_code}")
+                    self.dataSignal.emit({"status": 1,"response": response.status_code})
             except Exception as e:
-                self.logSignal.emit(
-                    {"logDisplay": f"获取 gas 价格时发生错误: {e}"}
-                )
-                # self.logDisplay.append(f"获取 gas 价格时发生错误: {e}")
-                Util.write_to_log(f"获取 gas 价格时发生错误: {e}")
+                self.dataSignal.emit({"status": 2, "response": e})
             retry_count -= 1
+            time.sleep(2)
 
     def stop(self):
         self.running = False
 
-
 class GetContainerItemStatusThread(QThread):
     updateStatusSignal = pyqtSignal(QLabel, str)
 
-    async def checkContainerItemByUrlRequest(self, url, session, containerName, itemName, semaphore):
+    async def checkContainerItemByUrlRequest(self, url, session, containerName, itemName,semaphore):
         headers = {'Content-Type': 'application/json'}
         data = {"params": [containerName, itemName]}
         retry_count = 20
@@ -293,7 +286,7 @@ class GetContainerItemStatusThread(QThread):
             Util.debugPrint(f"{data} retry count exceeded, rpc servers might be overloaded or down.")
             return {"error": "retry count exceeded, rpc servers might be overloaded or down."}
 
-    def __init__(self, images, folder_path, containerName, text_labels):
+    def __init__(self, images, folder_path,containerName, text_labels):
         super().__init__()
         self.images = images
         self.folder_path = folder_path
@@ -302,20 +295,19 @@ class GetContainerItemStatusThread(QThread):
         self.isRunning = True
         self.loop = None
 
-    def setParams(self, images, folder_path, containerName, text_labels):
+    def setParams(self, images, folder_path,containerName, text_labels):
         self.images = images
         self.folder_path = folder_path
         self.text_labels = text_labels
         self.containerName = containerName
 
-    async def getStatus(self, session, i, pic, semaphore):
+    async def getStatus(self, session, i, pic,semaphore):
         if self.containerName == "":
             self.containerName = self.folder_path.split("/")[-1]
         fileName = pic["filename"]
         pattern = r'item-(\d+)\.json'
         match = re.search(pattern, fileName)
-        urls = [website + rpc_request_routes["get_by_container_item"] for website in
-                ["https://ep.atomicals.xyz/proxy/", "https://ep.nextdao.xyz/proxy/"]]
+        urls = [website + rpc_request_routes["get_by_container_item"] for website in ["https://ep.atomicals.xyz/proxy/", "https://ep.nextdao.xyz/proxy/"]]
         try:
             urls = os.environ.get("PROXY_URLS").split(",")
             urls = [website + "blockchain.atomicals.get_by_container_item" for website in urls]
@@ -324,8 +316,7 @@ class GetContainerItemStatusThread(QThread):
 
         if match:
             fileName = match.group(1)
-            response = await self.checkContainerItemByUrlRequest(urls[i % len(urls)], session, self.containerName,
-                                                                 fileName, semaphore)
+            response = await self.checkContainerItemByUrlRequest(urls[i % len(urls)], session, self.containerName, fileName,semaphore)
             if response:
                 new_text = self.text_labels[i].text()
                 if "response" in response:
@@ -351,7 +342,7 @@ class GetContainerItemStatusThread(QThread):
             for i, pic in enumerate(self.images):
                 if not self.isRunning:
                     break
-                tasks.append(asyncio.create_task(self.getStatus(session, i, pic, semaphore)))
+                tasks.append(asyncio.create_task(self.getStatus(session, i, pic,semaphore)))
                 await asyncio.sleep(0.2)
             await asyncio.wait(tasks)
 
@@ -369,16 +360,15 @@ class GetContainerItemStatusThread(QThread):
     def stop(self):
         self.isRunning = False
         if self.loop:
-            for i, task in enumerate(asyncio.all_tasks(self.loop)):
+            for i,task in enumerate(asyncio.all_tasks(self.loop)):
                 task.cancel()
                 Util.debugPrint(f"get item status task {i} is canceled")
-
 
 class GetWalletDetailThread(QThread):
     logSignal = pyqtSignal(str)
     walletDataSignal = pyqtSignal(dict)
 
-    def __init__(self, scripthash):
+    def __init__(self,scripthash):
         super().__init__()
         self.isRunning = True
         self.loop = None
@@ -386,8 +376,8 @@ class GetWalletDetailThread(QThread):
 
     async def getWalletDetailByUrlRequest(self, url, session):
         headers = {'Content-Type': 'application/json'}
-        data = {"params": [self.scripthash, True]}
-        retry_count = 10
+        data = {"params": [self.scripthash,True]}
+        retry_count=10
         while retry_count > 0 and self.isRunning:
             try:
                 Util.debugPrint(f"requesting {url}...")
@@ -401,12 +391,11 @@ class GetWalletDetailThread(QThread):
                 retry_count -= 1
                 Util.debugPrint(f"error: {e},retrying {retry_count}...")
         return {"error": "retry count exceeded, rpc servers might be overloaded or down."}
-
     def setParams(self, scripthash):
         self.scripthash = scripthash
 
-    async def doTask(self, session):
-        url = os.environ["ELECTRUMX_PROXY_BASE_URL"] + "/" + rpc_request_routes["listscripthash"]
+    async def doTask(self,session):
+        url = os.environ["ELECTRUMX_PROXY_BASE_URL"] + "/"+rpc_request_routes["listscripthash"]
         self.logSignal.emit("获取地址详细信息中...")
         response = await self.getWalletDetailByUrlRequest(url, session)
         if response:
@@ -414,7 +403,7 @@ class GetWalletDetailThread(QThread):
                 self.logSignal.emit("解析中...")
 
                 globalData = response["response"]["global"]
-                walletData = {"height": globalData["height"], "atomical_count": globalData["atomical_count"]}
+                walletData={"height":globalData["height"],"atomical_count":globalData["atomical_count"]}
 
                 utxos = response["response"]["utxos"]
                 walletData["balance"] = self.parseUtxos(utxos)
@@ -431,7 +420,7 @@ class GetWalletDetailThread(QThread):
 
     def parse_atomicals(self, atomicals_data):
 
-        nft_atomicals = {"num": 0, "plain": [], "svg": [], "realm": [], "dmitem": []}
+        nft_atomicals = {"num": 0, "plain": [], "svg":[], "realm": [], "dmitem": []}
         ft_atomicals = []
         if atomicals_data:
             for atomical_item in atomicals_data.values():
@@ -487,8 +476,7 @@ class GetWalletDetailThread(QThread):
                                 nft_atomicals["num"] += 1
                                 break
                 elif atomical_item["type"] == "FT":
-                    if "request_ticker_status" in atomical_item and atomical_item["request_ticker_status"][
-                        "status"] == "verified":
+                    if "request_ticker_status" in atomical_item and atomical_item["request_ticker_status"]["status"] == "verified":
                         ft_atomicals.append({
                             "atomicalID": atomical_item["atomical_id"],
                             "ticker": atomical_item["ticker"],
@@ -524,7 +512,6 @@ class GetWalletDetailThread(QThread):
             tasks = []
             tasks.append(asyncio.create_task(self.doTask(session)))
             await asyncio.wait(tasks)
-
     def run(self):
         try:
             self.loop = asyncio.get_event_loop()
@@ -542,22 +529,36 @@ class GetWalletDetailThread(QThread):
             for task in asyncio.all_tasks(self.loop):
                 task.cancel()
 
-
 class CommandThread(QThread):
     newOutput = pyqtSignal(str)
     finishedOutput = pyqtSignal(str)
 
-    def __init__(self, command, count=1, shell=True, title="default", emitFullOutput=False, wait_time=0):
+    def __init__(self, command, count=1,shell=True,title="",emitFullOutput=False,wait_time=0,outputSleep=True):
         super().__init__()
         self.command = command
         self.process = None
         self.title = title
         self.shell = shell
         self.emitFullOutput = emitFullOutput
-        self.count = count  # 运行次数
-        self.output = ""  # 存储累积的输出
+        self.count = count
+        self.output = ""
         self.wait_time = wait_time
         self.isRunning = True
+        self.outputSleep = outputSleep
+        self.logTimer = QTimer()
+        self.logTimer.timeout.connect(self.flushOutput)
+        self.logBuffer = "\n"
+        self.intervalTime = 500
+        self.logTimer.setInterval(self.intervalTime)
+        self.readThread = None
+        self.logBufferLock = threading.Lock()
+
+    def flushOutput(self):
+        if self.logBuffer and self.isRunning:
+            self.newOutput.emit(self.logBuffer)
+            Util.write_to_log(self.logBuffer)
+            with self.logBufferLock:
+                self.logBuffer = ""
 
     def set_cmd(self, command):
         self.command = command
@@ -572,21 +573,30 @@ class CommandThread(QThread):
             else:  # Windows 系统
                 self.process = subprocess.Popen(self.command, cwd=os.environ["AJS_PATH"], stdout=subprocess.PIPE,
                                                 stderr=subprocess.STDOUT, shell=self.shell, text=True, bufsize=1)
+            loop = QEventLoop()
+            QTimer.singleShot(100, partial(self.startLogTimer))
+            loop.exec_()
+        except Exception as e:
+            Util.debugPrint(f"{self.title} error: {e}")
+            return
+
+    def startLogTimer(self):
+        def readFromProcess():
             for line in iter(self.process.stdout.readline, ''):
-                if not self.isRunning:
-                    if self.process:
-                        self.process.terminate()
-                    break
-                self.newOutput.emit(self.title + ": " + line)
-                Util.write_to_log(self.title + ": " + line)
-                time.sleep(0.001)
-                if self.emitFullOutput:
+                if self.isRunning and self.process:
+                    with self.logBufferLock:
+                        self.logBuffer += self.title + line
                     self.output += line
+                    # time.sleep(0.001)
+                else:
+                    break
             if self.emitFullOutput:
                 self.finishedOutput.emit(self.output)
-        except Exception as e:
-            Util.debugPrint(f"{self.title}: error: {e}")
-            return
+
+        self.logTimer.start()
+        self.readThread = threading.Thread(target=readFromProcess)
+        self.readThread.start()
+
 
     def run(self):
         for i in range(self.count):
@@ -598,21 +608,23 @@ class CommandThread(QThread):
 
     def stop(self):
         try:
+            self.isRunning = False
+            if self.logTimer:
+                self.logTimer.stop()
             if self.process:
                 if os.name != 'nt':  # 非 Windows 系统
                     os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
                 else:  # Windows 系统
                     subprocess.run(['taskkill', '/F', '/T', '/PID', str(self.process.pid)])
                     Util.debugPrint(" force killed")
-                self.isRunning = False
         except Exception as e:
             Util.debugPrint(e)
         self.process = None
 
-
 class DisplayWalletDetailsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.tipHeightDisplay = None
         self.atomical_grid_layout = None
         self.nftNumberDisplay = None
         self.ftNumberDisplay = None
@@ -628,24 +640,25 @@ class DisplayWalletDetailsTab(QWidget):
         self.logDisplay = None
         self.walletDetailThread = None
         self.addressScriptThread = None
+        self.tipHeightThread = None
+        self.unit = "sats"
         self.initUI()
 
     def refresh(self):
         self.currentWalletChanged()
-
-    def get_script_hash_from_bech32(self, address):
+    def get_script_hash_from_bech32(self,address):
         command = f"yarn cli address-script  \"{address}\""
         if self.addressScriptThread is not None:
             self.addressScriptThread.stop()
 
-        self.addressScriptThread = CommandThread(command, emitFullOutput=True)
-        self.addressScriptThread.newOutput.connect(lambda: 1 + 2)
+        self.addressScriptThread = CommandThread(command,emitFullOutput=True)
+        self.addressScriptThread.newOutput.connect(lambda :1+2)
 
         def extract_script_hash(output):
             match = re.search(r"Scripthash:\s*([0-9a-fA-F]+)", output)
             if match:
                 scripthash = match.group(1)
-                self.logDisplay.append("Scripthash:" + scripthash)
+                self.logDisplay.append("Scripthash:"+ scripthash)
                 if self.walletDetailThread is None:
                     self.walletDetailThread = GetWalletDetailThread(scripthash)
                 else:
@@ -668,6 +681,7 @@ class DisplayWalletDetailsTab(QWidget):
         self.totalBalanceDisplay.setText(str(walletDataDict["balance"]["total"]) + " sats")
         self.safeBalanceDisplay.setText(str(walletDataDict["balance"]["safe"]) + " sats")
         self.atomicalsBalanceDisplay.setText(str(walletDataDict["balance"]["atomical"]) + " sats")
+        self.unit = "sats"
 
         nftAtomicals_num = walletDataDict["atomicals"]["nftAtomicals"]["num"]
         ftAtomicals_num = len(walletDataDict["atomicals"]["ftAtomicals"])
@@ -695,7 +709,6 @@ class DisplayWalletDetailsTab(QWidget):
             frame.setLayout(item_layout)
             frame.setStyleSheet("QFrame { background-color: #ffffff; margin: 5px; }")
             return frame
-
         def drawDmitem(hex_data):
             png_data = bytes.fromhex(hex_data)
             image = QImage.fromData(png_data)
@@ -711,7 +724,6 @@ class DisplayWalletDetailsTab(QWidget):
             except Exception as e:
                 formatted_json = hex_data
             return formatted_json
-
         def drawSvg(hex_data):
             svg_data = binascii.unhexlify(hex_data)
             byte_array = QByteArray(svg_data)
@@ -726,7 +738,6 @@ class DisplayWalletDetailsTab(QWidget):
             renderer.render(painter)
             painter.end()
             return pixmap
-
         # Function to add items to the grid layout
         def add_items_to_layout(item_data, item_type, row, col):
             container_label = None
@@ -747,7 +758,7 @@ class DisplayWalletDetailsTab(QWidget):
                 item_layout.addWidget(container_label, 3, 2, 1, 2)
             elif item_type == 'plain' or item_type == 'ft' or item_type == 'realm':
                 middle_widget.setText(item_data.get('text'))
-                if item_type == 'plain':
+                if item_type=='plain':
                     middle_widget.setFont(QFont("Arial", 10))
                 else:
                     middle_widget.setFont(QFont("Arial", 16))
@@ -778,6 +789,7 @@ class DisplayWalletDetailsTab(QWidget):
 
             self.atomical_grid_layout.addWidget(item_frame, row, col)
 
+
         def update_indexes(r, c):
             if c < item_each_col - 1:
                 c += 1
@@ -793,6 +805,7 @@ class DisplayWalletDetailsTab(QWidget):
             }
             add_items_to_layout(data, 'plain', row_index, col_index)
             row_index, col_index = update_indexes(row_index, col_index)
+
 
         for svgAtomicals in nftAtomicals["svg"]:
             data = {
@@ -827,6 +840,7 @@ class DisplayWalletDetailsTab(QWidget):
             add_items_to_layout(data, 'ft', row_index, col_index)
             row_index, col_index = update_indexes(row_index, col_index)
 
+
     def setWalletCombox(self):
         try:
             walletAddressDict = {}
@@ -835,7 +849,7 @@ class DisplayWalletDetailsTab(QWidget):
                 walletPath = os.environ["WALLET_PATH"][2:]
             fullWalletFilePath = os.path.join(os.environ["AJS_PATH"], walletPath, os.environ["WALLET_FILE"])
             Util.debugPrint(fullWalletFilePath)
-            with open(fullWalletFilePath, "r", encoding="utf-8") as f:
+            with open(fullWalletFilePath, "r",encoding="utf-8") as f:
                 walletJson = json.load(f)
 
             if walletJson["primary"]:
@@ -853,7 +867,7 @@ class DisplayWalletDetailsTab(QWidget):
             self.logDisplay.append(f"读取钱包文件时发生错误: {e}")
             return
 
-    def clear_layout(self, layout):
+    def clear_layout(self,layout):
         # This method removes all widgets from the layout and deletes them
         while layout.count():
             # Take the first item in the layout
@@ -870,6 +884,42 @@ class DisplayWalletDetailsTab(QWidget):
         self.clear_layout(self.atomical_grid_layout)
         self.currentWalletAddrValue.setText(self.walletBox.currentData())
         self.get_script_hash_from_bech32(self.walletBox.currentData())
+        self.updateTipHeight()
+
+    def updateTipHeight(self):
+        if self.tipHeightThread is not None:
+            self.tipHeightThread.stop()
+            self.tipHeightThread = None
+        self.tipHeightThread = GetUrlResponseThread(mempool_urls["tipHeight"])
+        def updateBlockTipHeight(dictInfo):
+            if dictInfo["status"] == 0:
+                self.tipHeightDisplay.setText(str(dictInfo["response"]))
+            elif dictInfo["status"] == 1: # http error
+                Util.debugPrint(f"获取最新区块高度失败，状态码: {dictInfo['response']}")
+            elif dictInfo["status"] == 2: # exception occurred
+                Util.debugPrint(f"获取最新区块高度时发生错误: {dictInfo['response']}")
+        self.tipHeightThread.dataSignal.connect(updateBlockTipHeight)
+        self.tipHeightThread.start()
+
+    def switchUnit(self):
+        if self.totalBalanceDisplay.text() == "undefined":
+            return
+        if self.unit == "sats":
+            self.unit = "btc"
+            totalBalance = float(self.totalBalanceDisplay.text()[:-5])
+            safeBalance = float(self.safeBalanceDisplay.text()[:-5])
+            atomicalBalance = float(self.atomicalsBalanceDisplay.text()[:-5])
+            self.totalBalanceDisplay.setText(f"{totalBalance / 100000000:.8f} btc")
+            self.safeBalanceDisplay.setText(f"{safeBalance / 100000000:.8f} btc")
+            self.atomicalsBalanceDisplay.setText(f"{atomicalBalance / 100000000:.8f} btc")
+        else:
+            self.unit = "sats"
+            totalBalance = float(self.totalBalanceDisplay.text()[:-4])
+            safeBalance = float(self.safeBalanceDisplay.text()[:-4])
+            atomicalBalance = float(self.atomicalsBalanceDisplay.text()[:-4])
+            self.totalBalanceDisplay.setText(f"{totalBalance * 100000000:.0f} sats")
+            self.safeBalanceDisplay.setText(f"{safeBalance * 100000000:.0f} sats")
+            self.atomicalsBalanceDisplay.setText(f"{atomicalBalance * 100000000:.0f} sats")
 
     def initUI(self):
         layout = QGridLayout()
@@ -887,6 +937,11 @@ class DisplayWalletDetailsTab(QWidget):
         currentWalletAddrValue.setMaximumWidth(450)
         currentWalletAddrValue.setReadOnly(True)
 
+        tipHeightLabel = QLabel("主网区块高度:")
+        tipHeightLabel.setMaximumWidth(100)
+        tipHeightDisplay = QLabel("undefined")
+        tipHeightDisplay.setMaximumWidth(100)
+
         blockHeightLabel = QLabel("已索引区块高度:")
         blockHeightLabel.setMaximumWidth(100)
         blockHeightDisplay = QLabel("undefined")
@@ -897,6 +952,7 @@ class DisplayWalletDetailsTab(QWidget):
         atomicalsCountDisplay = QLabel("undefined")
         atomicalsCountDisplay.setMaximumWidth(100)
 
+        self.tipHeightDisplay = tipHeightDisplay
         self.blockHeightDisplay = blockHeightDisplay
         self.atomicalsCountDisplay = atomicalsCountDisplay
         self.walletBox = currentWalletBox
@@ -908,6 +964,8 @@ class DisplayWalletDetailsTab(QWidget):
         walletLayout.addWidget(currentWalletBox)
         walletLayout.addWidget(currentWalletAddrLabel)
         walletLayout.addWidget(currentWalletAddrValue)
+        walletLayout.addWidget(tipHeightLabel)
+        walletLayout.addWidget(tipHeightDisplay)
         walletLayout.addWidget(blockHeightLabel)
         walletLayout.addWidget(blockHeightDisplay)
         walletLayout.addWidget(atomicalsCountLabel)
@@ -924,6 +982,8 @@ class DisplayWalletDetailsTab(QWidget):
             background-color: none;
         }
         """)
+
+
 
         balanceLayout = QHBoxLayout()
         totalBalanceLabel = QLabel("总余额:")
@@ -950,8 +1010,12 @@ class DisplayWalletDetailsTab(QWidget):
         nftNumberDisplay = QLabel("undefined")
         self.nftNumberDisplay = nftNumberDisplay
 
+        switchUnitButton = QPushButton("切换单位")
+        switchUnitButton.clicked.connect(self.switchUnit)
+
         refreshButton = QPushButton("刷新")
         refreshButton.clicked.connect(self.refresh)
+
 
         balanceLayout.addWidget(totalBalanceLabel)
         balanceLayout.addWidget(totalBalanceDisplay)
@@ -965,6 +1029,7 @@ class DisplayWalletDetailsTab(QWidget):
         balanceLayout.addWidget(ftNumberDisplay)
         balanceLayout.addWidget(nftNumberLabel)
         balanceLayout.addWidget(nftNumberDisplay)
+        balanceLayout.addWidget(switchUnitButton)
         balanceLayout.addWidget(refreshButton)
 
         balanceLayout.setStretchFactor(totalBalanceDisplay, 1)
@@ -988,6 +1053,8 @@ class DisplayWalletDetailsTab(QWidget):
                 }
                 """)
 
+
+
         atomDisplayArea = QScrollArea()
         atomDisplayArea.setWidgetResizable(True)
         scroll_widget = QWidget()
@@ -995,8 +1062,9 @@ class DisplayWalletDetailsTab(QWidget):
         self.atomical_grid_layout = atomical_grid_layout
         atomDisplayArea.setWidget(scroll_widget)
 
-        logArea, logDisplay = AtomicalToolGUI.createScrollableLogDisplay()
+        logArea,logDisplay = AtomicalToolGUI.createScrollableLogDisplay()
         self.logDisplay = logDisplay
+
 
         layout.addWidget(walletContainer, 0, 0, 1, 2)
         layout.addWidget(balanceContainer, 1, 0)
@@ -1005,7 +1073,6 @@ class DisplayWalletDetailsTab(QWidget):
 
         self.setLayout(layout)
         self.setWalletCombox()
-
 
 class DisplayContainerImageTab(QWidget):
     def __init__(self, parent=None):
@@ -1016,9 +1083,9 @@ class DisplayContainerImageTab(QWidget):
         self.current_page = 0
         self.images = []
         self.image_labels = []
-        self.num_threads = 10  # 或者你想要的线程数
-        self.text_labels = []  # 新增一个列表来存放文本标签
-        self.cols = 10  # 假设有 10 列
+        self.num_threads = 5
+        self.text_labels = []
+        self.cols = 10
         self.item_per_page = 200
         self.initUI()
 
@@ -1067,6 +1134,7 @@ class DisplayContainerImageTab(QWidget):
         scroll_widget = QWidget()
         grid_layout = QGridLayout(scroll_widget)
 
+
         for i in range(self.item_per_page):
             # 图片标签
             image_label = QLabel()
@@ -1088,7 +1156,7 @@ class DisplayContainerImageTab(QWidget):
         self.setLayout(layout)
 
     def clear(self):
-        for i, thread in enumerate(self.itemStatusThreads):
+        for i,thread in enumerate(self.itemStatusThreads):
             Util.debugPrint(f"停止Container Image线程{i}")
             thread.stop()
             thread.terminate()
@@ -1104,7 +1172,7 @@ class DisplayContainerImageTab(QWidget):
             self.image_labels[i].setPixmap(pixmap.scaled(120, 120, Qt.KeepAspectRatio))
             self.text_labels[i].setText(filename)
 
-    def page_selected(self, index):
+    def page_selected(self,index):
         if self.folder_path == "":
             return
 
@@ -1116,7 +1184,7 @@ class DisplayContainerImageTab(QWidget):
         self.images = self.load_images()
         self.show_image()
 
-    def search_btn_clicked(self, index, containerName):
+    def search_btn_clicked(self,index, containerName):
         if self.folder_path == "":
             return
 
@@ -1130,17 +1198,15 @@ class DisplayContainerImageTab(QWidget):
                 end_index = len(self.images)  # 确保最后一个线程处理所有剩余的图片
             if len(self.itemStatusThreads) >= self.num_threads:
                 thread = self.itemStatusThreads[i]
-                thread.setParams(self.images[start_index:end_index], self.folder_path, containerName,
-                                 self.text_labels[start_index:end_index])
+                thread.setParams(self.images[start_index:end_index], self.folder_path, containerName, self.text_labels[start_index:end_index])
             else:
-                thread = GetContainerItemStatusThread(self.images[start_index:end_index], self.folder_path,
-                                                      containerName,
-                                                      self.text_labels[start_index:end_index])
+                thread = GetContainerItemStatusThread(self.images[start_index:end_index], self.folder_path, containerName,
+                                                  self.text_labels[start_index:end_index])
                 self.itemStatusThreads.append(thread)
             thread.updateStatusSignal.connect(lambda text_label, text: text_label.setText(text))
             thread.start()
 
-    def select_folder(self, folder_displayer, page_selector, search_btn):
+    def select_folder(self,folder_displayer, page_selector, search_btn):
         for thread in self.itemStatusThreads:
             thread.stop()
             thread.terminate()
@@ -1169,6 +1235,7 @@ class DisplayContainerImageTab(QWidget):
         start = self.current_page * self.item_per_page
         end = start + self.item_per_page
 
+
         file_names = sorted(
             filter(Util.is_valid_file, os.listdir(self.folder_path)),
             key=lambda x: int(x.split('-')[1].split('.')[0])
@@ -1179,7 +1246,7 @@ class DisplayContainerImageTab(QWidget):
             for filename in selected_files:
                 if filename.endswith('.json'):
                     file_path = os.path.join(self.folder_path, filename)
-                    with open(file_path, 'r', encoding='utf-8') as file:
+                    with open(file_path, 'r',encoding='utf-8') as file:
                         data = json.load(file)
                         try:
                             image_key = data["data"]["args"]["main"]
@@ -1199,7 +1266,6 @@ class DisplayContainerImageTab(QWidget):
             Util.debugPrint(f"Error loading image: {e}")
         return images
 
-
 class AtomicalToolGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1212,6 +1278,7 @@ class AtomicalToolGUI(QMainWindow):
     def initUI(self):
 
         script_directory = os.path.dirname(os.path.realpath(__file__))
+
 
         if not sys.platform == "darwin":
             icon_path = os.path.join(script_directory, "ajs-qt-gui.png")
@@ -1233,12 +1300,8 @@ class AtomicalToolGUI(QMainWindow):
         self.addMenuLabel(menuLayout, "钱包")
         self.addButton(menuLayout, "初始化主钱包", self.openWalletInitTab)
         self.addButton(menuLayout, "导入钱包", self.openImportWalletTab)
-        self.addButton(menuLayout, "🎉钱包资产看板", self.openWalletDetailsTab)
+        self.addButton(menuLayout, "钱包资产看板", self.openWalletDetailsTab)
         self.addButton(menuLayout, "查看钱包派生路径", self.openDisplayWalletPathTab)
-        # self.addButton(menuLayout, "导入钱包详细信息", self.openImportedWalletDetailsTab)
-
-        # self.addButton(menuLayout, "使用助记词导出私钥", self.openExportPrivateKeyTab)
-        # self.addButton(menuLayout, "获取地址信息", self.openAddressInfoTab)
         self.addButton(menuLayout, "设置", self.openSettingsTab)
         self.addMenuLabel(menuLayout, "Mint Atomicals")
         self.addButton(menuLayout, "mint Realm/SubRealm", self.openMintRealmTab)
@@ -1270,7 +1333,7 @@ class AtomicalToolGUI(QMainWindow):
         self.setCentralWidget(centralWidget)
 
     def closeApp(self):
-        if len(self.commandThreads) != 0:
+        if len(self.commandThreads)!=0:
             for thread in self.commandThreads:
                 thread.stop()
 
@@ -1290,14 +1353,14 @@ class AtomicalToolGUI(QMainWindow):
         layout.addWidget(button)
 
     # execute with html convert
-    def executeCommandWithHtmlFormat(self, command, displayWidget, count=1, shell=True, title="", wait_time=0):
+    def executeCommandWithHtmlFormat(self, command, displayWidget, count=1,shell=True,title="",wait_time=0):
         def updateDisplay(output):
             # 追加新的 HTML 输出到日志显示区域
             newHtml = Util.ansiToHtml(output)
             displayWidget.insertHtml(newHtml)
             displayWidget.moveCursor(QTextCursor.End)
 
-        thread = CommandThread(command, count, shell, title, wait_time=wait_time)
+        thread = CommandThread(command, count,shell,title,wait_time=wait_time,outputSleep=True)
         self.commandThreads.append(thread)
         thread.newOutput.connect(updateDisplay)
         thread.start()
@@ -1398,17 +1461,38 @@ class AtomicalToolGUI(QMainWindow):
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         layout.addWidget(scrollArea)
         self.addTab2(tab, "关于")
-
         def format_line(label, content):
             return f"{label}{'   '}{content}"
-
         dashNum = 100
         # 使用格式化函数来创建对齐的文本
         aboutStr = '\n'.join([
-            format_line("-" * dashNum, ""),
-            format_line('脚本作者:', 'wusimpl & redamancyer.eth'),
+            format_line("-"*dashNum,""),
+            format_line('Contributors:', 'wusimpl & redamancyer.eth'),
             format_line('推特:', '@wusimpl & @quantalmatrix'),
-            format_line("注意: 开源脚本，完全免费，风险自负！", ""),
+            format_line("⚠️免责声明⚠️: 开源脚本，完全免费，风险自负！",""),
+            format_line("-"*dashNum,""),
+            format_line("",""),
+
+            format_line("-" * dashNum, ""),
+            format_line("2024.1.2 v2.2", "版本更新日志："),
+            format_line('支持的 atomicals-js 版本:', 'v0.1.66'),
+            format_line("📌增加清空日志功能，优化日志显示", ""),
+            format_line(" "*5+"请注意清空页面的日志不会修改日志文件", ""),
+            format_line("📌增加主网区块高度显示", ""),
+            format_line(" "*5+"通过对比主网区块高度和Atomicals节点已索引区块高度可以判断主网数据是否已经同步，", ""),
+            format_line(" "*5+"如果已索引区块高度没有追上主网区块高度，那么未索引的主网Atomicals交易将暂时无法查询到。", ""),
+            format_line("📌自动读取可用钱包作为付款地址和接收地址", ""),
+            format_line(" "*5+"Atomicals-JS CLI 工具默认生成两个地址，一个primary地址用于接收Atomicals，一个", ""),
+            format_line(" "*5+"funding地址用于付款，如果需要使用其它地址作为付款或接受地址，请使用私钥导入，并使用", ""),
+            format_line(" "*5+"地址别名指定，AJS-QT-GUI会自动读取wallet.json中的所有可用地址。", ""),
+            format_line("📌多钱包mint ARC20", ""),
+            format_line(" " * 5 + "勾选“多钱包mint模式”，程序会读取mint规则，为每个钱包（私钥）运行一个mint线程", ""),
+            format_line(" " * 5 + "mint规则是<ticker>;<发送地址别名1-数量>;<发送地址别名2-数量>;...;<接收地址别名>", ""),
+            format_line(" " * 5 + "例如规则：sophon;fun1-2;fun2-1;primary 的含义是使用 fun1 并行 mint 2张 sophon，使用 fun2 mint 1张 sophon，", ""),
+            format_line(" " * 5 + "并使用 primary 钱包作为接收地址。每一项使用分号分隔，没有任何空格，每个发送钱包的别名和数量使用-分隔。",""),
+            format_line(" " * 5 + "请确保你的CPU有足够的算力，量力而行，否则可能会导致界面阻塞。例如您的CPU在mint一张sophon时占用30%的CPU时间，",""),
+            format_line(" " * 5 + "那么同时mint的张数最好不要超过3",""),
+            format_line("📌钱包余额单位已可在sats和btc之间切换（1 btc=10^8 sats）", ""),
             format_line("-" * dashNum, ""),
             format_line("", ""),
 
@@ -1416,41 +1500,44 @@ class AtomicalToolGUI(QMainWindow):
             format_line("2023.12.31 v2.1", "版本更新日志："),
             format_line('支持的 atomicals-js 版本:', 'v0.1.63'),
             format_line("📌增加钱包资产看板（BTC余额、Atomicals数量、Atomicals显示...）", ""),
-            format_line("📌支持ARC20(mint-dft) 并行mint和串行mint两种模式", ""),
-            format_line(
-                "📌支持查看日志文件，所有日志写入与脚本相同的目录下的ajs-qt-gui-log.txt，请定期备份然后删除日志文件避免文件过大",
-                ""),
-            format_line("📌增加应用程序图标", ""),
-            format_line("📌修复若干bug，增强代码健壮性", ""),
-            format_line("-" * dashNum, ""),
+            format_line("📌支持ARC20(mint-dft) 并行mint和串行mint两种模式",""),
+            format_line("📌支持查看日志文件，所有日志写入与脚本相同的目录下的ajs-qt-gui-log.txt，请定期备份然后删除日志文件避免文件过大", ""),
+            format_line("📌增加应用程序图标",""),
+            format_line("📌修复若干bug，增强代码健壮性",""),
+            format_line("-"*dashNum,""),
             format_line("", ""),
 
             format_line("-" * dashNum, ""),
             format_line('2023.12.25 v2.0', '版本更新日志：'),
             format_line('支持的 atomicals-js 版本:', 'v0.1.61'),
-            format_line("📌首个公开发布版本，详情请见：https://x.com/wusimpl/status/1739581605851865130?s=20", ""),
+            format_line("📌首个公开发布版本，详情请见：https://x.com/wusimpl/status/1739581605851865130?s=20",""),
             format_line("-" * dashNum, ""),
         ])
 
         outputDisplay.setText(aboutStr)
 
-    def fetchAndDisplayGasPrice(self, displayWidget, feeRateEdit, logDisplay):
-        if self.gasPriceThread is None:
-            self.gasPriceThread = GasPriceThread()
-        else:
-            if self.gasPriceThread.isRunning():
-                self.gasPriceThread.quit()
-                self.gasPriceThread.wait()
+    def fetchAndDisplayGasPrice(self, displayWidget,feeRateEdit,logDisplay):
+        if self.gasPriceThread:
+            self.gasPriceThread.running = False
+        self.gasPriceThread = GetUrlResponseThread(mempool_urls["gasPrice"])
 
         def updateUI(dictInfo):
-            if "gasPriceDisplay" in dictInfo:
-                displayWidget.setText(dictInfo["gasPriceDisplay"])
-            if "feeRateEdit" in dictInfo:
-                feeRateEdit.setText(dictInfo["feeRateEdit"])
-            if "logDisplay" in dictInfo:
-                logDisplay.append(dictInfo["logDisplay"])
+            if dictInfo["status"] == 0:
+                gasPrice = dictInfo["response"]["fastestFee"]
+                displayWidget.setText(f"当前 gas 价格: {gasPrice} sats/vB")
+                feeRateEdit.setText(str(gasPrice))
+                logDisplay.append(f"当前 gas 价格: {gasPrice} sats/vB")
+                Util.debugPrint(f"当前 gas 价格: {gasPrice} sats/vB")
+            elif dictInfo["status"] == 1: # http error
+                httpStatusCode = dictInfo["response"]
+                displayWidget.setText(f"获取 gas 价格失败，状态码: {httpStatusCode}")
+                Util.debugPrint(f"获取 gas 价格失败，状态码: {httpStatusCode}")
+            elif dictInfo["status"] == 2: # exception occurred
+                displayWidget.setText(f"获取 gas 价格时发生错误: {dictInfo['response']}")
+                logDisplay.append(f"获取 gas 价格时发生错误: {dictInfo['response']}")
+                Util.debugPrint(f"获取 gas 价格时发生错误: {dictInfo['response']}")
 
-        self.gasPriceThread.logSignal.connect(updateUI)
+        self.gasPriceThread.dataSignal.connect(updateUI)
         # self.gasPriceThread.setUI(displayWidget,feeRateEdit,logDisplay)
         self.gasPriceThread.start()
 
@@ -1461,35 +1548,27 @@ class AtomicalToolGUI(QMainWindow):
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         layout.addWidget(scrollArea)
         self.addTab2(tab, "查看钱包")
-
-        try:
-            walletPath = os.environ["WALLET_PATH"]
-            if walletPath.startswith("./"):
-                walletPath = os.environ["WALLET_PATH"][2:]
-            fullWalletFilePath = os.path.join(os.environ["AJS_PATH"], walletPath, os.environ["WALLET_FILE"])
-            Util.debugPrint(fullWalletFilePath)
-            with open(fullWalletFilePath, "r", encoding="utf-8") as f:
-                walletJson = json.load(f)
-            outputDisplay.append("=" * 30 + " 主钱包 " + "=" * 30)
-            if walletJson["primary"]:
-                outputDisplay.append("primary")
-                outputDisplay.append(f"address: {walletJson['primary']['address']}")
-                outputDisplay.append(f"path: {walletJson['primary']['path']}")
-                outputDisplay.append("\n")
-            if walletJson["funding"]:
-                outputDisplay.append("funding")
-                outputDisplay.append(f"address: {walletJson['funding']['address']}")
-                outputDisplay.append(f"path: {walletJson['funding']['path']}")
-            if walletJson["imported"]:
-                outputDisplay.append("\n\n" + "=" * 30 + "导入钱包" + "=" * 30)
-                for key in walletJson["imported"]:
-                    outputDisplay.append(f"{key}")
-                    outputDisplay.append(f"address: {walletJson['imported'][key]['address']}")
-                    outputDisplay.append("\n")
-        except Exception as e:
-            outputDisplay.append(f"读取钱包文件时发生错误: {e}")
+        walletDict = Util.getWalletDict()
+        if "error" in walletDict:
+            outputDisplay.append(walletDict["error"])
             return
 
+        outputDisplay.append("=" * 30 + " 主钱包 " + "=" * 30)
+        if "primary" in walletDict:
+            outputDisplay.append("primary")
+            outputDisplay.append(f"address: {walletDict['primary']['address']}")
+            outputDisplay.append(f"path: {walletDict['primary']['path']}")
+            outputDisplay.append("\n")
+        if "funding" in walletDict:
+            outputDisplay.append("funding")
+            outputDisplay.append(f"address: {walletDict['funding']['address']}")
+            outputDisplay.append(f"path: {walletDict['funding']['path']}")
+        if "imported" in walletDict:
+            outputDisplay.append("\n\n" + "=" * 30 + "导入钱包" + "=" * 30)
+            for key in walletDict["imported"]:
+                outputDisplay.append(f"{key}")
+                outputDisplay.append(f"address: {walletDict['imported'][key]['address']}")
+                outputDisplay.append("\n")
     # 钱包初始化
     def openWalletInitTab(self):
         tab = QWidget()
@@ -1524,17 +1603,18 @@ class AtomicalToolGUI(QMainWindow):
         layout = QGridLayout(tab)
 
         walletInfoLayout = QHBoxLayout()
+        wifLabel = QLabel("私钥：")
         wifEdit = QLineEdit()
         wifEdit.setPlaceholderText("WIF格式的私钥")
+        aliasLabel = QLabel("别名：")
         aliasEdit = QLineEdit()
         aliasEdit.setPlaceholderText("给钱包取一个别名")
-        executeButton = QPushButton("导入私钥地址")
+        executeButton = QPushButton("导入私钥")
+        walletInfoLayout.addWidget(wifLabel)
         walletInfoLayout.addWidget(wifEdit)
+        walletInfoLayout.addWidget(aliasLabel)
         walletInfoLayout.addWidget(aliasEdit)
         walletInfoLayout.addWidget(executeButton)
-        walletInfoLayout.setStretchFactor(wifEdit, 2)
-        walletInfoLayout.setStretchFactor(aliasEdit, 2)
-        walletInfoLayout.setStretchFactor(executeButton, 1)
         layout.addLayout(walletInfoLayout, 0, 0)
 
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
@@ -1543,9 +1623,8 @@ class AtomicalToolGUI(QMainWindow):
         self.addTab2(tab, "导入私钥地址")
 
         executeButton.clicked.connect(
-            lambda: self.executeCommandWithHtmlFormat(
-                f"yarn cli wallet-import \"{wifEdit.text()}\" \"{aliasEdit.text()}\"",
-                outputDisplay))
+            lambda: self.executeCommandWithHtmlFormat(f"yarn cli wallet-import \"{wifEdit.text()}\" \"{aliasEdit.text()}\"",
+                                                      outputDisplay))
 
     # 获取地址信息
     def openAddressInfoTab(self):
@@ -1740,8 +1819,7 @@ class AtomicalToolGUI(QMainWindow):
         self.addTab2(tab, "导入钱包详细信息")
 
         walletAliasBox.currentIndexChanged.connect(
-            lambda: self.executeCommandWithHtmlFormat(f"yarn cli wallets --alias {walletAliasBox.currentText()}",
-                                                      outputDisplay))
+            lambda: self.executeCommandWithHtmlFormat(f"yarn cli wallets --alias {walletAliasBox.currentText()}", outputDisplay))
         walletAliasBox.addItems(Util.getImportedWalletList())
 
     # 获取领域/子领域信息
@@ -1769,7 +1847,22 @@ class AtomicalToolGUI(QMainWindow):
 
     # mint 领域/子领域
 
-    def openMintRealmTab(self, a):
+    def setupAddressCombox(self,walletDict,combox,logDisplay,isFundingAddress=False):
+        if "error" in walletDict:
+            logDisplay.append(walletDict["error"])
+            return
+        if "primary" in walletDict:
+            combox.addItem("primary"+f"（{walletDict['primary']['address']}）","primary")
+        if "funding" in walletDict:
+            combox.addItem("funding"+f"（{walletDict['funding']['address']}）","funding")
+        if "imported" in walletDict:
+            for key in walletDict["imported"]:
+                combox.addItem(key+f"（{walletDict['imported'][key]['address']}）",key)
+        if isFundingAddress:
+            combox.setCurrentText("funding"+f"（{walletDict['funding']['address']}）")
+        else:
+            combox.setCurrentText("primary"+f"（{walletDict['primary']['address']}）")
+    def openMintRealmTab(self,a):
         tab = QWidget()
         gridLayout = QGridLayout(tab)
         self.addTab2(tab, "mint 领域/子领域")
@@ -1789,19 +1882,18 @@ class AtomicalToolGUI(QMainWindow):
         realmLayout.setStretch(2, 1)
 
         # 添加钱包地址输入控件
-        senderLabel = QLabel("钱包发送地址:")
-        senderEdit = QLineEdit()
-        senderEdit.setPlaceholderText("留空默认为funding address")
+        senderLabel = QLabel("付款地址:")
+        senderCombox = QComboBox()
         senderLayout = QHBoxLayout()
         senderLayout.addWidget(senderLabel)
-        senderLayout.addWidget(senderEdit)
+        senderLayout.addWidget(senderCombox)
 
-        receiverLabel = QLabel("接收地址:")
-        receiverEdit = QLineEdit()
-        receiverEdit.setPlaceholderText("留空默认为primary address")
+        receiverLabel = QLabel("Atomicals接收地址:")
+        receiverCombox = QComboBox()
         receiverLayout = QHBoxLayout()
         receiverLayout.addWidget(receiverLabel)
-        receiverLayout.addWidget(receiverEdit)
+        receiverLayout.addWidget(receiverCombox)
+
 
         # 添加 satsoutput 和手续费率输入控件
         satsoutputLabel = QLabel("satsoutput:")
@@ -1820,9 +1912,9 @@ class AtomicalToolGUI(QMainWindow):
 
         # 显示当前 gas 价格及刷新按钮
         gasPriceDisplay = QLabel()
+        gasPriceDisplay.setMaximumWidth(300)
         refreshGasButton = QPushButton("刷新")
-        refreshGasButton.clicked.connect(
-            lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay))
+        refreshGasButton.clicked.connect(lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay,feeRateEdit,outputDisplay))
         gasLayout = QHBoxLayout()
         gasLayout.addWidget(gasPriceDisplay)
         gasLayout.addWidget(refreshGasButton)
@@ -1832,23 +1924,29 @@ class AtomicalToolGUI(QMainWindow):
         executeButton.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Expanding)
-        gridLayout.addWidget(executeButton, 0, 3, 3, 2)
+        gridLayout.addWidget(executeButton, 0, 3, 2, 2)
 
         # 停止
         stopButton = QPushButton("停止")
         stopButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        gridLayout.addWidget(stopButton, 3, 3, 3, 2)
+        gridLayout.addWidget(stopButton, 2, 3, 2, 2)
+
+        clearLogButton = QPushButton("清除日志")
+        clearLogButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        gridLayout.addWidget(clearLogButton, 4, 3, 2, 2)
 
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay)
 
+        clearLogButton.clicked.connect(lambda: outputDisplay.setText(""))
+
         gridLayout.addLayout(realmLayout, 0, 0, 1, 3)
 
         gridLayout.addWidget(senderLabel, 1, 0)
-        gridLayout.addWidget(senderEdit, 1, 1, 1, 2)
+        gridLayout.addWidget(senderCombox, 1, 1, 1, 2)
 
         gridLayout.addWidget(receiverLabel, 2, 0)
-        gridLayout.addWidget(receiverEdit, 2, 1, 1, 2)
+        gridLayout.addWidget(receiverCombox, 2, 1, 1, 2)
 
         gridLayout.addWidget(satsoutputLabel, 3, 0)
         gridLayout.addWidget(satsoutputEdit, 3, 1, 1, 2)
@@ -1864,17 +1962,19 @@ class AtomicalToolGUI(QMainWindow):
         # 设置执行按钮的点击事件
         executeButton.clicked.connect(lambda: self.mintRealm(
             realmEdit.text(),
-            senderEdit.text(),
-            receiverEdit.text(),
+            senderCombox.currentData(),
+            receiverCombox.currentData(),
             satsoutputEdit.text(),
             feeRateEdit.text(),
             outputDisplay,
             stopButton
         ))
-
+        walletDict = Util.getWalletDict()
+        self.setupAddressCombox(walletDict,senderCombox,outputDisplay,isFundingAddress=True)
+        self.setupAddressCombox(walletDict,receiverCombox,outputDisplay,isFundingAddress=False)
         # 设置刷新Gas按钮的点击事件
-        refreshGasButton.clicked.connect(
-            lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay))
+        refreshGasButton.clicked.connect(lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay,
+                                                                              feeRateEdit,outputDisplay))
 
         # 绑定查重按钮事件
         checkButton.clicked.connect(lambda: self.checkRealmDuplicate(realmEdit.text(), outputDisplay))
@@ -1915,7 +2015,7 @@ class AtomicalToolGUI(QMainWindow):
         filePathEdit = QLineEdit()
         # filePathEdit.setPlaceholderText("文件路径（最好使用全路径）")
         browseButton = QPushButton("浏览")
-        browseButton.clicked.connect(lambda: self.openFileDialog(filePathEdit, "*"))
+        browseButton.clicked.connect(lambda: self.openFileDialog(filePathEdit,"*"))
         fileLayout.addWidget(fileLabel)
         fileLayout.addWidget(filePathEdit)
         fileLayout.addWidget(browseButton)
@@ -1943,25 +2043,23 @@ class AtomicalToolGUI(QMainWindow):
         satsoutputLayout.setStretchFactor(satsoutputLabel, 1)
 
         senderLayout = QHBoxLayout()
-        senderLabel = QLabel("Sender:")
-        senderEdit = QLineEdit()
-        senderEdit.setPlaceholderText("留空默认为funding address")
+        senderLabel = QLabel("付款地址:")
+        senderCombox = QComboBox()
         senderLayout.addWidget(senderLabel)
-        senderLayout.addWidget(senderEdit)
-        senderLayout.setStretchFactor(senderEdit, 2)
+        senderLayout.addWidget(senderCombox)
+        senderLayout.setStretchFactor(senderCombox, 2)
         senderLayout.setStretchFactor(senderLabel, 1)
 
         receiverLayout = QHBoxLayout()
-        receiverLabel = QLabel("Receiver:")
-        receiverEdit = QLineEdit()
-        receiverEdit.setPlaceholderText("留空默认为primary address")
+        receiverLabel = QLabel("Atomicals接收地址:")
+        receiverCombox = QComboBox()
         receiverLayout.addWidget(receiverLabel)
-        receiverLayout.addWidget(receiverEdit)
-        receiverLayout.setStretchFactor(receiverEdit, 2)
+        receiverLayout.addWidget(receiverCombox)
+        receiverLayout.setStretchFactor(receiverCombox, 2)
         receiverLayout.setStretchFactor(receiverLabel, 1)
 
         feeRateLayout = QHBoxLayout()
-        feeRateLabel = QLabel("手续费:")
+        feeRateLabel = QLabel("手续费率:")
         feeRateEdit = QLineEdit()
         feeRateEdit.setPlaceholderText("留空默认40")
         feeRateLayout.addWidget(feeRateLabel)
@@ -1972,16 +2070,16 @@ class AtomicalToolGUI(QMainWindow):
         # 显示当前 gas 价格及刷新按钮
         gasLayout = QHBoxLayout()
         gasPriceDisplay = QLabel()
+        gasPriceDisplay.setMaximumWidth(300)
         refreshGasButton = QPushButton("刷新")
-        refreshGasButton.clicked.connect(
-            lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay))
+        refreshGasButton.clicked.connect(lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay,feeRateEdit,outputDisplay))
         gasLayout.addWidget(gasPriceDisplay)
         gasLayout.addWidget(refreshGasButton)
         gasLayout.setStretchFactor(gasPriceDisplay, 1)
         gasLayout.setStretchFactor(refreshGasButton, 2)
 
         # 执行按钮和输出显示
-        executeButton = QPushButton("mint")
+        executeButton = QPushButton("mint NFT")
         gridLayout.addWidget(executeButton, 0, 3, 3, 2)
         executeButton.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding,
@@ -1990,10 +2088,21 @@ class AtomicalToolGUI(QMainWindow):
 
         stopButton = QPushButton("停止")
         stopButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        gridLayout.addWidget(stopButton, 4, 3, 3, 2)
+        gridLayout.addWidget(stopButton, 3, 3, 2, 2)
+
+        clearLogButton = QPushButton("清除日志")
+        clearLogButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        gridLayout.addWidget(clearLogButton, 5, 3, 2, 2)
+
 
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay)
+
+        walletDict = Util.getWalletDict()
+        self.setupAddressCombox(walletDict,senderCombox,outputDisplay,isFundingAddress=True)
+        self.setupAddressCombox(walletDict,receiverCombox,outputDisplay,isFundingAddress=False)
+
+        clearLogButton.clicked.connect(lambda: outputDisplay.setText(""))
 
         # 添加控件到布局
         gridLayout.addLayout(fileLayout, 0, 0, 1, 3)
@@ -2009,10 +2118,10 @@ class AtomicalToolGUI(QMainWindow):
         # 设置执行按钮的点击事件
         executeButton.clicked.connect(
             lambda: self.mintNFT(filePathEdit.text(), bitworkcEdit.text(), satsoutputEdit.text(),
-                                 senderEdit.text(), receiverEdit.text(), feeRateEdit.text(), outputDisplay, stopButton
+                                 senderCombox.currentData(), receiverCombox.currentData(), feeRateEdit.text(), outputDisplay, stopButton
                                  ))
 
-    def openFileDialog(self, edit, filter):
+    def openFileDialog(self, edit,filter):
         fileName, _ = QFileDialog.getOpenFileName(self, "打开文件", "", filter)
         if fileName:
             edit.setText(fileName)
@@ -2043,35 +2152,46 @@ class AtomicalToolGUI(QMainWindow):
         gridLayout = QGridLayout(tab)
         self.addTab2(tab, "mint FT（ARC20 Token）")
 
+        def multiWalletMintModeClicked(state):
+            if state == Qt.Checked:
+                tickerLabel.setText("多钱包mint规则：")
+                tickerEdit.setPlaceholderText("规则编写方式请参见<关于>菜单")
+            else:
+                tickerLabel.setText("Ticker 名称:")
+                tickerEdit.setPlaceholderText("需要mint的Token名称")
+
+
         # Ticker 名称
         tickerLayout = QHBoxLayout()
         tickerLabel = QLabel("Ticker 名称:")
         tickerEdit = QLineEdit()
-        tickerEdit.setPlaceholderText("Ticker 名称")
+        tickerEdit.setPlaceholderText("需要mint的Token名称")
+        multiWalletMintMode = QCheckBox("多钱包mint模式💬")
+        multiWalletMintMode.setToolTip("该模式将会自动忽略<付款地址>字段，并使用并行mint方式\n更多信息请参见<关于>菜单中v2.2版本的更新日志📌多钱包mint ARC20")
+        multiWalletMintMode.stateChanged.connect(multiWalletMintModeClicked)
         tickerLayout.addWidget(tickerLabel)
         tickerLayout.addWidget(tickerEdit)
+        tickerLayout.addWidget(multiWalletMintMode)
         tickerLayout.setStretchFactor(tickerLabel, 1)
         tickerLayout.setStretchFactor(tickerEdit, 2)
 
         # 钱包发送地址
         senderLayout = QHBoxLayout()
-        senderLabel = QLabel("钱包发送地址:")
-        senderEdit = QLineEdit()
-        senderEdit.setPlaceholderText("留空则默认为funding address")
+        senderLabel = QLabel("付款地址:")
+        senderCombox = QComboBox()
         senderLayout.addWidget(senderLabel)
-        senderLayout.addWidget(senderEdit)
+        senderLayout.addWidget(senderCombox)
         senderLayout.setStretchFactor(senderLabel, 1)
-        senderLayout.setStretchFactor(senderEdit, 2)
+        senderLayout.setStretchFactor(senderCombox, 2)
 
         # 接收地址
         receiverLayout = QHBoxLayout()
-        receiverLabel = QLabel("接收地址:")
-        receiverEdit = QLineEdit()
-        receiverEdit.setPlaceholderText("留空则默认为primary address")
+        receiverLabel = QLabel("Atomicals接收地址:")
+        receiverCombox = QComboBox()
         receiverLayout.addWidget(receiverLabel)
-        receiverLayout.addWidget(receiverEdit)
+        receiverLayout.addWidget(receiverCombox)
         receiverLayout.setStretchFactor(receiverLabel, 1)
-        receiverLayout.setStretchFactor(receiverEdit, 2)
+        receiverLayout.setStretchFactor(receiverCombox, 2)
 
         # 重复mint的数量
         repeatMintLayout = QHBoxLayout()
@@ -2079,8 +2199,7 @@ class AtomicalToolGUI(QMainWindow):
         repeatMintEdit = QLineEdit()
         repeatMintEdit.setPlaceholderText("留空则默认1张")
         repeatMode = QCheckBox("并行mint💬")
-        repeatMode.setToolTip(
-            "勾选则启用并行mint模式，开启多个线程运行CLI mint命令\n否则使用串行mint模式，只开启一个线程，同一时间只会运行一个CLI mint命令")
+        repeatMode.setToolTip("勾选则启用并行mint模式，开启多个线程运行CLI mint命令\n否则使用串行mint模式，只开启一个线程，同一时间只会运行一个CLI mint命令")
         repeatMintLayout.addWidget(repeatMintLabel)
         repeatMintLayout.addWidget(repeatMintEdit)
         repeatMintLayout.addWidget(repeatMode)
@@ -2099,8 +2218,7 @@ class AtomicalToolGUI(QMainWindow):
 
         enableRBFLayout = QHBoxLayout()
         enableRBFLabel = QLabel("启用RBF💬:")
-        enableRBFLabel.setToolTip(
-            "启用RBF后，交易会被标记为可替换交易，\n可以使用Sparrow Wallet等支持RBF的钱包取消或加速该笔交易")
+        enableRBFLabel.setToolTip("启用RBF后，交易会被标记为可替换交易，\n可以使用Sparrow Wallet等支持RBF的钱包取消或加速该笔交易")
         enableRBFCheckbox = QCheckBox("启用")
         enableRBFLayout.addWidget(enableRBFLabel)
         enableRBFLayout.addWidget(enableRBFCheckbox)
@@ -2120,9 +2238,9 @@ class AtomicalToolGUI(QMainWindow):
         # 显示当前 gas 价格
         gasLayout = QHBoxLayout()
         gasPriceDisplay = QLabel()
+        gasPriceDisplay.setMaximumWidth(300)
         refreshGasButton = QPushButton("刷新")
-        refreshGasButton.clicked.connect(
-            lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay))
+        refreshGasButton.clicked.connect(lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay,feeRateEdit,outputDisplay))
         gasLayout.addWidget(gasPriceDisplay)
         gasLayout.addWidget(refreshGasButton)
         gasLayout.setStretchFactor(gasPriceDisplay, 1)
@@ -2135,8 +2253,18 @@ class AtomicalToolGUI(QMainWindow):
         stopButton = QPushButton("停止")
         stopButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
 
+        clearLogButton = QPushButton("清除日志")
+        clearLogButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+
+
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay)
+
+        walletDict = Util.getWalletDict()
+        self.setupAddressCombox(walletDict, senderCombox, outputDisplay, isFundingAddress=True)
+        self.setupAddressCombox(walletDict, receiverCombox, outputDisplay, isFundingAddress=False)
+
+        clearLogButton.clicked.connect(lambda: outputDisplay.setText(""))
 
         # 添加控件到布局
         gridLayout.addLayout(tickerLayout, 0, 0, 1, 3)
@@ -2148,55 +2276,112 @@ class AtomicalToolGUI(QMainWindow):
         gridLayout.addLayout(feeRateLayout, 6, 0, 1, 3)
         gridLayout.addLayout(gasLayout, 7, 0, 1, 3)
         gridLayout.addWidget(executeButton, 0, 3, 4, 2)
-        gridLayout.addWidget(stopButton, 5, 3, 3, 2)
+        gridLayout.addWidget(stopButton, 4, 3, 3, 2)
+        gridLayout.addWidget(clearLogButton, 6, 3, 2, 2)
         gridLayout.addWidget(scrollArea, 8, 0, 1, 5)
 
         # 设置执行按钮的点击事件
         executeButton.clicked.connect(
-            lambda: self.mintDFT(tickerEdit.text(), senderEdit.text(), receiverEdit.text(), repeatMintEdit.text(),
-                                 repeatMode.isChecked(),
+            lambda: self.mintDFT(tickerEdit.text(),multiWalletMintMode.isChecked(),senderCombox.currentData(),receiverCombox.currentData(), repeatMintEdit.text(),repeatMode.isChecked(),
                                  disableChalkCheckbox.isChecked(),
                                  enableRBFCheckbox.isChecked(), feeRateEdit.text(), outputDisplay, stopButton))
 
-    def mintDFT(self, ticker, sender, receiver, repeatMint, parrallelMode, disableChalk, enbleRBF, feeRate,
-                outputDisplay, stopButton):
-        if ticker == "":
-            outputDisplay.append("请在输入ticker名称")
-            return
-        try:
-            repeatMint = int(repeatMint)
-        except ValueError:
-            repeatMint = 1
-        # 使用默认值处理可选参数
-        feeRate = f"--satsbyte {feeRate}" if feeRate else "--satsbyte 40"
-        sender = f"--funding {sender}" if sender else ""
-        receiver = f"--initialowner {receiver}" if receiver else ""
+    def mintDFT(self, ticker, multiWalletMode, senderItem, receiver, repeatMint, parrallelMode, disableChalk, enbleRBF, feeRate, outputDisplay, stopButton):
+        def parseMultiWalletMintModeRules(ruleStr):
+            try:
+                items = ruleStr.split(";")
+                if len(items) <3:
+                    outputDisplay.append("mint规则解析错误，请检查规则语法是否正确")
+                    Util.debugPrint("mint规则解析错误，请检查规则语法是否正确")
+                    return None
+                ticker = items[0]
+                receiver = items[-1]
+                senders = items[1:-1]
+                result = {
+                              "ticker": ticker,
+                              "receiver": receiver,
+                              "senders": [{sender.split("-")[0]: sender.split("-")[1]} for sender in senders]
+                          }
+                return result
+            except Exception as e:
+                outputDisplay.append("mint规则解析错误，请检查规则语法是否正确")
+                Util.debugPrint("mint规则解析错误，请检查规则语法是否正确")
+                return None
+        def startMintDFT(ticker, repeatMint, feeRate, sender, receiver, disableChalk, enbleRBF, parrallelMode, title, outputDisplay):
+            if ticker == "":
+                outputDisplay.append("请输入ticker名称")
+                return
+            try:
+                repeatMint = int(repeatMint)
+            except ValueError:
+                repeatMint = 1
+            # 使用默认值处理可选参数
+            feeRate = f"--satsbyte {feeRate}" if feeRate else "--satsbyte 40"
+            sender = f"--funding {sender}" if sender else ""
+            receiver = f"--initialowner {receiver}" if receiver else ""
 
-        # 构建命令
-        mint_dft_cmd = f"yarn cli mint-dft {ticker} {feeRate} {sender} {receiver}"
-        if disableChalk:
-            mint_dft_cmd = mint_dft_cmd + " --disablechalk"
-        if enbleRBF:
-            mint_dft_cmd = mint_dft_cmd + " --rbf"
+            # 构建命令
+            mint_dft_cmd = f"yarn cli mint-dft {ticker} {feeRate} {sender} {receiver}"
+            if disableChalk:
+                mint_dft_cmd = mint_dft_cmd + " --disablechalk"
+            if enbleRBF:
+                mint_dft_cmd = mint_dft_cmd + " --rbf"
 
-        Util.debugPrint(mint_dft_cmd)
+            # Util.debugPrint(mint_dft_cmd)
 
-        if not parrallelMode:
-            thread = self.executeCommandWithHtmlFormat(mint_dft_cmd, outputDisplay, repeatMint)
-            stopButton.clicked.connect(lambda: self.stopCommandThread(outputDisplay, thread))
+            if not parrallelMode:
+                thread = self.executeCommandWithHtmlFormat(mint_dft_cmd, outputDisplay, repeatMint)
+                stopButton.clicked.connect(lambda: self.stopCommandThread(outputDisplay, thread))
+            else:
+                threads = []
+                for i in range(repeatMint):
+                    if i==0:
+                        wait_time = 0
+                    else:
+                        wait_time = 5
+                    thread = self.executeCommandWithHtmlFormat(mint_dft_cmd, outputDisplay, shell=True, title=f"{title} thread {i}：",wait_time=wait_time)
+                    threads.append(thread)
+                stopButton.clicked.connect(lambda: self.stopCommandThreads(outputDisplay, threads))
+
+
+        if multiWalletMode:
+            if ticker == "":
+                outputDisplay.append("请输入多钱包mint规则")
+                return
+            parseResult = parseMultiWalletMintModeRules(ticker)
+            if parseResult is None:
+                return
+            ticker = parseResult["ticker"]
+            receiver = parseResult["receiver"]
+            i = 0
+            try:
+                for senderInfo in parseResult["senders"]:
+                    sender,repeatMint=list(senderInfo.items())[0]
+                    repeatMint = int(senderInfo[sender])
+                    if i == 0:
+                        QTimer.singleShot(100, partial(startMintDFT,ticker=ticker, repeatMint=repeatMint, feeRate=feeRate,
+                                                                  sender=sender, receiver=receiver,
+                                                                  disableChalk=disableChalk, enbleRBF=enbleRBF,
+                                                                  parrallelMode=True,
+                                                                  title=f"mint {ticker} with 💼{sender} wallet",
+                                                                  outputDisplay=outputDisplay))
+                    else:
+                        QTimer.singleShot(i*3000, partial(startMintDFT,ticker=ticker, repeatMint=repeatMint, feeRate=feeRate,
+                                                                  sender=sender, receiver=receiver,
+                                                                  disableChalk=disableChalk, enbleRBF=enbleRBF,
+                                                                  parrallelMode=True,
+                                                                  title=f"mint {ticker} with 💼{sender} wallet",
+                                                                  outputDisplay=outputDisplay))
+                    i = i + 1
+            except Exception as e:
+                Util.debugPrint(f"error: {e}")
+                outputDisplay.append(f"error: {e}")
         else:
-            threads = []
-            for i in range(repeatMint):
-                if i == 0:
-                    wait_time = 0
-                else:
-                    wait_time = 5
-                thread = self.executeCommandWithHtmlFormat(mint_dft_cmd, outputDisplay, 1, shell=True,
-                                                           title=f"mint DFT Thread {i}", wait_time=wait_time)
-                threads.append(thread)
-            stopButton.clicked.connect(lambda: self.stopCommandThreads(outputDisplay, threads))
+            senderAlias = f"{senderItem}" if senderItem else "funding"
+            startMintDFT(ticker, repeatMint, feeRate, senderItem, receiver, disableChalk, enbleRBF,
+                         parrallelMode,f"mint {ticker} with {senderAlias} wallet", outputDisplay)
 
-    def openMintContainerItemTab(self, a):
+    def openMintContainerItemTab(self,a):
         tab = QWidget()
         gridLayout = QGridLayout(tab)
         self.addTab2(tab, "mint Container Item")
@@ -2236,7 +2421,7 @@ class AtomicalToolGUI(QMainWindow):
         manifestFilePathEdit = QLineEdit()
         manifestFilePathEdit.setPlaceholderText("json文件")
         browseButton = QPushButton("浏览")
-        browseButton.clicked.connect(lambda: self.openFileDialog(manifestFilePathEdit, "*.json"))
+        browseButton.clicked.connect(lambda: self.openFileDialog(manifestFilePathEdit,"*.json"))
         manifestFilePathLayout = QHBoxLayout()
         manifestFilePathLayout.addWidget(manifestFilePathLabel)
         manifestFilePathLayout.addWidget(manifestFilePathEdit)
@@ -2247,25 +2432,23 @@ class AtomicalToolGUI(QMainWindow):
         gridLayout.addLayout(manifestFilePathLayout, 2, 0, 1, 3)
 
         # 钱包发送地址
-        senderLabel = QLabel("钱包发送地址:")
-        senderEdit = QLineEdit()
-        senderEdit.setPlaceholderText("留空则默认为funding address")
+        senderLabel = QLabel("付款地址:")
+        senderCombox = QComboBox()
         senderLayout = QHBoxLayout()
         senderLayout.addWidget(senderLabel)
-        senderLayout.addWidget(senderEdit)
+        senderLayout.addWidget(senderCombox)
         senderLayout.setStretchFactor(senderLabel, 1)
-        senderLayout.setStretchFactor(senderEdit, 2)
+        senderLayout.setStretchFactor(senderCombox, 2)
         gridLayout.addLayout(senderLayout, 3, 0, 1, 3)
 
         # 接收地址
-        receiverLabel = QLabel("接收地址:")
-        receiverEdit = QLineEdit()
-        receiverEdit.setPlaceholderText("留空则默认为primary address")
+        receiverLabel = QLabel("Atomicals接收地址:")
+        receiverCombox = QComboBox()
         receiverLayout = QHBoxLayout()
         receiverLayout.addWidget(receiverLabel)
-        receiverLayout.addWidget(receiverEdit)
+        receiverLayout.addWidget(receiverCombox)
         receiverLayout.setStretchFactor(receiverLabel, 1)
-        receiverLayout.setStretchFactor(receiverEdit, 2)
+        receiverLayout.setStretchFactor(receiverCombox, 2)
         gridLayout.addLayout(receiverLayout, 4, 0, 1, 3)
 
         # 手续费率
@@ -2302,9 +2485,9 @@ class AtomicalToolGUI(QMainWindow):
 
         # 显示当前 gas 价格
         gasPriceDisplay = QLabel()
+        gasPriceDisplay.setMaximumWidth(300)
         refreshGasButton = QPushButton("刷新")
-        refreshGasButton.clicked.connect(
-            lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay))
+        refreshGasButton.clicked.connect(lambda: self.fetchAndDisplayGasPrice(gasPriceDisplay,feeRateEdit,outputDisplay))
         gasLayout = QHBoxLayout()
         gasLayout.addWidget(gasPriceDisplay)
         gasLayout.addWidget(refreshGasButton)
@@ -2314,23 +2497,35 @@ class AtomicalToolGUI(QMainWindow):
 
         # 执行
         executeButton = QPushButton("mint Container Item")
-        gridLayout.addWidget(executeButton, 0, 3, 4, 2)
+        gridLayout.addWidget(executeButton, 0, 3, 3, 2)
         executeButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
 
         start_time = time.time()  # 开始计时
         # 停止
         stopButton = QPushButton("停止")
         stopButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        gridLayout.addWidget(stopButton, 5, 3, 4, 2)
+        gridLayout.addWidget(stopButton, 3, 3, 3, 2)
+
+        clearLogButton = QPushButton("清除日志")
+        clearLogButton.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        gridLayout.addWidget(clearLogButton, 6, 3, 3, 2)
+
 
         scrollArea, outputDisplay = self.createScrollableLogDisplay()
         gridLayout.addWidget(scrollArea, 9, 0, 1, 5)
 
+        walletDict = Util.getWalletDict()
+        self.setupAddressCombox(walletDict, senderCombox, outputDisplay, isFundingAddress=True)
+        self.setupAddressCombox(walletDict, receiverCombox, outputDisplay, isFundingAddress=False)
+
+        clearLogButton.clicked.connect(lambda: outputDisplay.setText(""))
+
         self.fetchAndDisplayGasPrice(gasPriceDisplay, feeRateEdit, outputDisplay)
 
         executeButton.clicked.connect(lambda: self.mintContainerItem(containerNameEdit.text(), itemNameEdit.text(),
-                                                                     manifestFilePathEdit.text(), senderEdit.text(),
-                                                                     receiverEdit.text(),
+                                                                     manifestFilePathEdit.text(),
+                                                                     senderCombox.currentData(),
+                                                                     receiverCombox.currentData(),
                                                                      feeRateEdit.text(),
                                                                      disableChalkCheckbox.isChecked(),
                                                                      bitworkcEdit.text(),
@@ -2346,10 +2541,10 @@ class AtomicalToolGUI(QMainWindow):
         outputDisplay.moveCursor(QTextCursor.End)
 
     def stopCommandThreads(self, outputDisplay, threads):
-        for i, thread in enumerate(threads):
+        for i,thread in enumerate(threads):
             thread.stop()
-            outputDisplay.append(f"⛔已停止进程{i}⛔")
-            Util.debugPrint(f"⛔已停止进程{i}⛔")
+            outputDisplay.append(f"⛔已停止线程{i}⛔")
+            Util.debugPrint(f"⛔已停止线程{i}⛔")
             outputDisplay.moveCursor(QTextCursor.End)
 
     def mintContainerItem(self, containerName, itemName, manifestFilePath, sender, receiver, feeRate, disableChalk,
@@ -2374,7 +2569,6 @@ class AtomicalToolGUI(QMainWindow):
 
     def openContainerItemImagesTab(self):
         self.addTab2(DisplayContainerImageTab(), "解析 Container Item Images")
-
     def checkContainerItemDuplicate(self, containerName, itemName, outputDisplay):
         if containerName == "" or itemName == "":
             outputDisplay.append("请输入容器名称/物品名称")
@@ -2402,7 +2596,7 @@ def main():
     app = QApplication(sys.argv)
     Util.set_icon(app)
     ex = AtomicalToolGUI()
-    theme_str = '''
+    theme_str= '''
     <!--?xml version="1.0" encoding="UTF-8"?-->
     <resources>
       <color name="primaryColor">#8bc34a</color>
