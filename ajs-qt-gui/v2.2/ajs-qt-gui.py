@@ -1474,7 +1474,7 @@ class AtomicalToolGUI(QMainWindow):
             format_line("",""),
 
             format_line("-" * dashNum, ""),
-            format_line("2024.1.2 v2.2", "版本更新日志："),
+            format_line("2024.1.11 v2.2", "版本更新日志："),
             format_line('支持的 atomicals-js 版本:', 'v0.1.66'),
             format_line("📌增加清空日志功能，优化日志显示", ""),
             format_line(" "*5+"请注意清空页面的日志不会修改日志文件", ""),

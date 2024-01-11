@@ -1,6 +1,7 @@
 .idea
 .uienv
 ajs-qt-gui/**/ajs-qt-gui-log.txt
+ajs-qt-gui/**/.uienv
 .DS_Store
 ajs-qt-gui/**/.DS_Store
 ./**/.txt
